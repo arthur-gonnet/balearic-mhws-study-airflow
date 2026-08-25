@@ -6,7 +6,7 @@ scipy
 zarr # the codebase always writes Zarr format 2 explicitly - any zarr-python major version works
 
 # For plotting
-matplotlib
+matplotlib<3.11 # 3.11 breaks cartopy 0.25's gridliner (GEOSException on savefig)
 cartopy
 geopy
 shapely
