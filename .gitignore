@@ -1,12 +1,15 @@
 .vscode
 
 data/*/**
-!data/*/README.md
 
 logs/*
-!logs/.gitkeep
 
 .env
 *.egg-info/
+
+hpc/test-cluster/ssh/
+
+config/airflow.cfg
+.pytest_cache/
 
 **/__pycache__/
