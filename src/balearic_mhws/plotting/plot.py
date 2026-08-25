@@ -193,6 +193,7 @@ def subplot(
         show_plots: bool = False,
         save_plot: bool = False,
         save_path: str = "",
+        transparent: bool = True,
 ):
     """
     Builds a figure with subplots with matplotlib.
@@ -385,7 +386,7 @@ def subplot(
 
         # If saving the figure is asked
         if save_plot:
-            fig.savefig(save_path, format="png")
+            fig.savefig(save_path, format="png", transparent=transparent)
         
         # If showing the figure is asked
         if show_plots:
@@ -452,6 +453,7 @@ def plot_map(
         # Parameter for saving the figure
         save_plot: bool = False,
         save_path: str = "",
+        transparent: bool = True,
 
         show_plots: bool = False,
 
@@ -546,9 +548,12 @@ def plot_map(
     
     save_plot: bool, default=False
         Defines if saving the figure after plotting.
-    
+
     save_path: bool, default=False
         Defines the path to which save the figure.
+
+    transparent: bool, default=True
+        Defines if the saved figure's background should be transparent.
 
     Returns
     -------
@@ -700,7 +705,7 @@ def plot_map(
         
         # If saving the figure is asked
         if save_plot:
-            fig.savefig(save_path, format="png", transparent=True)
+            fig.savefig(save_path, format="png", transparent=transparent)
             plt.clf()
             plt.close("all")
         
@@ -761,6 +766,7 @@ def plot_transect(
         # Parameter for saving the figure
         save_plot: bool = False,
         save_path: str = "",
+        transparent: bool = True,
         dpi: int = 160,
 
         show_plots: bool = False,
@@ -907,7 +913,7 @@ def plot_transect(
 
         # If saving the figure is asked
         if save_plot:
-            fig.savefig(save_path, format="png", dpi=dpi)
+            fig.savefig(save_path, format="png", dpi=dpi, transparent=transparent)
         
         # If showing the figure is asked
         if show_plots:
