@@ -17,6 +17,7 @@ import argparse
 import sys
 from typing import List
 
+from balearic_mhws import config
 from balearic_mhws.data import download, io
 from balearic_mhws.processing import compute_mhws
 
@@ -114,8 +115,8 @@ def build_parser() -> argparse.ArgumentParser:
     compute_parser.add_argument('--dataset', choices=['rep', 'medrea'], required=True)
     compute_parser.add_argument('--region', default='balears')
     compute_parser.add_argument('--ds-type', choices=['yearly', 'all_events'], default='yearly')
-    compute_parser.add_argument('--clim-start', type=int, default=1987)
-    compute_parser.add_argument('--clim-end', type=int, default=2021)
+    compute_parser.add_argument('--clim-start', type=int, default=config.CLIMATOLOGY_PERIOD[0])
+    compute_parser.add_argument('--clim-end', type=int, default=config.CLIMATOLOGY_PERIOD[1])
     compute_parser.add_argument('--task-id', help="Slurm array task id, unused for now - reserved for future chunked runs")
     compute_parser.set_defaults(func=cmd_compute)
 

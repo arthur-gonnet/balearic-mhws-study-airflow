@@ -13,8 +13,6 @@ from airflow.sdk import dag, task
         "dataset": "rep",
         "region": "balears",
         "ds_type": "yearly",
-        "clim_start": 1987,
-        "clim_end": 2021,
         # Optional 'start:stop' ranges (stop exclusive). Empty means "whatever ingest_* defaults to".
         "years": "",
         "months": "",
@@ -26,6 +24,9 @@ def balearic_mhws():
     the resulting Zarr store, and saves a diagnostic map as a quick visual sanity check. The
     ingest/compute/validate stages call into `pipelines.mhws_pipeline`, the same CLI the Slurm
     sbatch scripts use, so that logic is defined in exactly one place.
+
+    The climatology period is always config.CLIMATOLOGY_PERIOD - not a trigger param - so every
+    run's results stay comparable and never end up self-referential (climatology == analysis year).
 
     Trigger with e.g. {"dataset": "rep", "years": "2020:2023"} to control what gets ingested/computed.
     """
@@ -55,19 +56,19 @@ def balearic_mhws():
         dataset: str,
         region: str = "balears",
         ds_type: str = "yearly",
-        clim_start: int = 1987,
-        clim_end: int = 2021,
     ):
         import os
         import shlex
+
+        from balearic_mhws import config
 
         # DAG params come through Jinja templating as strings even when their default is an int.
         run_args = {
             "dataset": dataset,
             "region": region,
             "ds_type": ds_type,
-            "clim_start": int(clim_start),
-            "clim_end": int(clim_end),
+            "clim_start": config.CLIMATOLOGY_PERIOD[0],
+            "clim_end": config.CLIMATOLOGY_PERIOD[1],
         }
 
         slurm_host = os.environ.get("SLURM_SSH_HOST")
@@ -202,8 +203,6 @@ def balearic_mhws():
         dataset=dataset,
         region="{{ params.region }}",
         ds_type="{{ params.ds_type }}",
-        clim_start="{{ params.clim_start }}",
-        clim_end="{{ params.clim_end }}",
     )
 
     validation = validate_result(result)

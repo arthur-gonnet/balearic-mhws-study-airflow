@@ -232,7 +232,7 @@ def save_mhws(
         dataset_used: str,
         detrended: bool = False,
         region: str = 'balears',
-        clim_period: Tuple[int, int] = (1987, 2021),
+        clim_period: Tuple[int, int] = config.CLIMATOLOGY_PERIOD,
         progress_bar: bool = True,
 ) -> xr.Dataset:
     """
@@ -253,7 +253,7 @@ def save_mhws(
     region : str, default='balears'
         Region in which the MHWs computations were performed.
 
-    clim_period : tuple[int, int], default=(1987,2021)
+    clim_period : tuple[int, int], default=config.CLIMATOLOGY_PERIOD
         Climatology period used for the MHWs computations.
 
     progress_bar : bool, default=True
@@ -290,7 +290,7 @@ def load_mhws(
         dataset_used: str,
         detrended: bool = False,
         region: str = 'balears',
-        clim_period: Tuple[int, int] = (1987, 2021),
+        clim_period: Tuple[int, int] = config.CLIMATOLOGY_PERIOD,
 ) -> xr.Dataset:
     """
     Loads a MHWs dataset from its Zarr store.
@@ -306,7 +306,7 @@ def load_mhws(
     region : str, default='balears'
         Region in which the MHWs computations were performed.
 
-    clim_period : tuple[int, int], default=(1987,2021)
+    clim_period : tuple[int, int], default=config.CLIMATOLOGY_PERIOD
         Climatology period used for the MHWs computations.
 
     Returns

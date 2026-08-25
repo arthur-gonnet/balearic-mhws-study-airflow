@@ -96,7 +96,7 @@ def compute_mhw_yearly(
         var_name: str = 'T',
 
         # Computation options
-        clim_period: tuple[int, int] = (1987,2021),
+        clim_period: tuple[int, int] = opts.CLIMATOLOGY_PERIOD,
         detrend: bool = False,
 ) -> xr.Dataset:
     """
@@ -116,7 +116,7 @@ def compute_mhw_yearly(
         Optional parameter to specify the variable name used. Only used if providing
         a dataset, so that the correct DataArray is extracted from it.
 
-    clim_period: tuple[int, int], default=(1987,2021)
+    clim_period: tuple[int, int], default=opts.CLIMATOLOGY_PERIOD
         The climatology period used. Must be in the dataset time definition range.
 
     detrend: bool, default=False
@@ -299,7 +299,7 @@ def compute_mhw_all_events(
         var_name: str = 'T',
 
         # Computation options
-        clim_period: Tuple[int, int] = (1987,2021),
+        clim_period: Tuple[int, int] = opts.CLIMATOLOGY_PERIOD,
         detrend: bool = False,
 ) -> xr.Dataset:
     """
@@ -319,7 +319,7 @@ def compute_mhw_all_events(
         Optional parameter to specify the variable name used. Only used if providing
         a dataset, so that the correct DataArray is extracted from it.
 
-    clim_period: tuple[int, int], default=(1987,2021)
+    clim_period: tuple[int, int], default=opts.CLIMATOLOGY_PERIOD
         The climatology period used. Must be in the dataset time definition range.
 
     detrend: bool, default=False

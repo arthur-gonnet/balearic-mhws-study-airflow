@@ -74,6 +74,10 @@ SPATIAL_EXTENT: Dict[str, float] = {
 # at every one of them is ~100x more expensive than this handful for little added insight.
 MEDREA_DEFAULT_DEPTH_LEVELS = [0, 50, 100, 150, 200, 500, 700, 1000, 1500, 2000]
 
+# Single source of truth for the climatology baseline - keep every caller (CLI, DAG, sbatch
+# scripts) on the same period rather than letting it drift per-run.
+CLIMATOLOGY_PERIOD = (1987, 2021)
+
 ########################################################################################################################
 ##################################### MHWS STATISTICS ###################################################################
 ########################################################################################################################
