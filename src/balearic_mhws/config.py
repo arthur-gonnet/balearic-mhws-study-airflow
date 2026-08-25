@@ -49,7 +49,10 @@ COPERNICUS_USERNAME = os.environ.get("USERNAME_COPERNICUS") or None
 COPERNICUS_PASSWORD = os.environ.get("PASSWORD_COPERNICUS") or None
 
 REP_DATASET_ID = "cmems_SST_MED_SST_L4_REP_OBSERVATIONS_010_021"
-MEDREA_DATASET_ID = "med-cmcc-tem-rean-d"
+# The original thesis notebook used "med-cmcc-tem-rean-d", which no longer resolves on the
+# Copernicus Marine catalog - this is its current successor (same MEDSEA_MULTIYEAR_PHY_006_004
+# product, "thetao" variable unchanged).
+MEDREA_DATASET_ID = "cmems_mod_med_phy-temp_my_4.2km_P1D-m"
 MEDREA_BATHY_DATASET_ID = "cmems_mod_med_phy_my_4.2km_static"
 
 # Spatial/depth extent considered by this study
@@ -61,6 +64,11 @@ SPATIAL_EXTENT: Dict[str, float] = {
     "minimum_depth": 0,
     "maximum_depth": 3000,
 }
+
+# Representative MEDREA depth levels used for MHW computation by default, matching the original
+# thesis notebook's usage. The full water column has ~111 levels between 0-3000m; computing MHWs
+# at every one of them is ~100x more expensive than this handful for little added insight.
+MEDREA_DEFAULT_DEPTH_LEVELS = [0, 50, 100, 150, 200, 500, 700, 1000, 1500, 2000]
 
 ########################################################################################################################
 ##################################### MHWS STATISTICS ###################################################################

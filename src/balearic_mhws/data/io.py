@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import xarray as xr
+from dask.diagnostics.progress import ProgressBar
+from dask.utils import format_time
 
 from .. import config
 
@@ -81,7 +83,7 @@ def open_medrea(
         time_selector: Optional[str | slice | List[str]] = None,
         lon_selector: Optional[float | slice | List[float]] = None,
         lat_selector: Optional[float | slice | List[float]] = None,
-        depth_selector: Optional[float | slice | List[float]] = slice(0, 3000),
+        depth_selector: Optional[float | slice | List[float]] = 'default',
         region_selector: Optional[str] = 'balears',
 ) -> xr.Dataset:
     """
@@ -95,8 +97,11 @@ def open_medrea(
     lon_selector, lat_selector : float | slice[float], optional
         Longitude/latitude selectors applied using xarray's `.sel()`. Overridden by `region_selector`.
 
-    depth_selector : float | slice[float], default=slice(0, 3000), optional
-        Depth selector applied using xarray's `.sel()`.
+    depth_selector : float | slice[float] | list[float], default='default', optional
+        Depth selector applied using xarray's `.sel()`. Defaults to `config.MEDREA_DEFAULT_DEPTH_LEVELS`,
+        a handful of representative depths - the full water column has ~111 levels, computing MHWs at
+        every one of them is ~100x more expensive for little added insight. Pass `None` for no depth
+        filtering (the full water column) or a `slice`/explicit list for something else.
 
     region_selector : str, default='balears', optional
         Applies a named spatial selector to the dataset. Overrides `lon_selector`/`lat_selector`.
@@ -106,6 +111,9 @@ def open_medrea(
     ds_medrea : xarray.Dataset
         The MEDREA dataset.
     """
+
+    if depth_selector == 'default':
+        depth_selector = config.MEDREA_DEFAULT_DEPTH_LEVELS
 
     if not config.MEDREA_ZARR.exists():
         raise FileNotFoundError(f"MEDREA Zarr store not found at {config.MEDREA_ZARR}. Run the download stage first.")
@@ -160,6 +168,37 @@ def open_bathy(region_selector: Optional[str] = 'balears') -> xr.Dataset:
 ########################################################################################################################
 ##################################### MHWS DATASETS #####################################################################
 ########################################################################################################################
+
+
+class _LoggingProgressBar(ProgressBar):
+    """
+    dask ProgressBar variant that prints one log line per update instead of redrawing a bar in
+    place with '\\r' - '\\r'-based redraws don't render in Airflow's captured/structured logs, they
+    just silently vanish, leaving a long-running compute task with no visible progress at all.
+
+    Print cadence backs off exponentially (starting at `start_interval`, doubling up to
+    `max_interval`) so a multi-hour computation doesn't spam the log with hundreds of near-identical
+    lines, while still confirming quickly that the task is alive right after it starts. Actual
+    progress - e.g. a chunk finishing, including the final 100% - always prints immediately
+    regardless of that schedule, since it's real information, not a heartbeat.
+    """
+
+    def __init__(self, start_interval: float = 15.0, max_interval: float = 600.0):
+        super().__init__(dt=1.0)
+        self._next_print = start_interval
+        self._interval = start_interval
+        self._max_interval = max_interval
+        self._last_frac = None
+
+    def _draw_bar(self, frac, elapsed):
+        if frac == self._last_frac and elapsed < self._next_print:
+            return
+
+        print(f"Computing: {int(100 * frac)}% complete - {format_time(elapsed)} elapsed")
+
+        self._last_frac = frac
+        self._interval = min(self._interval * 2, self._max_interval)
+        self._next_print = elapsed + self._interval
 
 
 def _mhws_zarr_path(
@@ -218,15 +257,20 @@ def save_mhws(
         The computed MHWs dataset.
     """
 
-    from dask.diagnostics.progress import ProgressBar
-
     zarr_path = _mhws_zarr_path(ds_type, dataset_used, detrended, region, clim_period)
     zarr_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # compute_mhw_yearly/compute_mhw_all_events stack and unstack dimensions internally
+    # (e.g. lat/lon/depth for MEDREA), which can leave dask chunks uneven along the unstacked
+    # dimensions - Zarr rejects a chunk that's larger than the one before it. MHW output datasets
+    # are always small (stats x grid x years, not raw input volumes), so rechunking to one chunk
+    # per dimension before writing is cheap and guarantees valid, uniform Zarr chunk encoding.
+    ds_mhws = ds_mhws.chunk({dim: -1 for dim in ds_mhws.dims})
 
     print(f"Saving MHWs dataset to {zarr_path}")
 
     if progress_bar:
-        with ProgressBar():
+        with _LoggingProgressBar():
             ds_mhws.to_zarr(zarr_path, mode='w', consolidated=True)
     else:
         ds_mhws.to_zarr(zarr_path, mode='w', consolidated=True)
