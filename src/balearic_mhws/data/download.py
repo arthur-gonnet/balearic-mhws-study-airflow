@@ -151,6 +151,8 @@ def ingest_rep(years: Iterable[int] = range(1982, 2024), months: Iterable[int] =
             for path in monthly_paths:
                 path.unlink()
 
+    print("Done !")
+
 
 def ingest_medrea(years: Iterable[int] = range(1987, 2023), months: Iterable[int] = range(1, 13)) -> None:
     """
@@ -194,6 +196,8 @@ def ingest_medrea(years: Iterable[int] = range(1987, 2023), months: Iterable[int
 
             for path in monthly_paths:
                 path.unlink()
+
+    print("Done !")
 
 
 def ingest_bathy() -> None:
