@@ -22,9 +22,10 @@ from airflow.sdk import dag, task
 )
 def balearic_mhws():
     """
-    Downloads REP or MEDREA data into its raw Zarr store, computes MHW metrics from it, and
-    validates the resulting Zarr store. All three stages call into `pipelines.mhws_pipeline`,
-    the same CLI the Slurm sbatch scripts use, so the logic is defined in exactly one place.
+    Downloads REP or MEDREA data into its raw Zarr store, computes MHW metrics from it, validates
+    the resulting Zarr store, and saves a diagnostic map as a quick visual sanity check. The
+    ingest/compute/validate stages call into `pipelines.mhws_pipeline`, the same CLI the Slurm
+    sbatch scripts use, so that logic is defined in exactly one place.
 
     Trigger with e.g. {"dataset": "rep", "years": "2020:2023"} to control what gets ingested/computed.
     """
@@ -144,6 +145,53 @@ def balearic_mhws():
 
         print(f"Validated {run_args['dataset']} MHWs dataset: {dict(ds_mhws.sizes)}")
 
+    @task
+    def plot_diagnostic(run_args: dict):
+        # Only 'yearly' output has the (lat, lon, year) shape a single map can show; 'all_events'
+        # is event/time-indexed instead, no natural equivalent for a quick sanity-check plot.
+        if run_args["ds_type"] != "yearly":
+            print(f"Skipping diagnostic plot for ds_type={run_args['ds_type']!r} (not 'yearly').")
+            return None
+
+        import matplotlib
+        matplotlib.use("Agg")
+
+        from balearic_mhws import config
+        from balearic_mhws.data import io
+        from balearic_mhws.plotting.plot import plot_map, mhws_stats_cmaps
+
+        stat = "total_days"
+
+        ds_mhws = io.load_mhws(
+            ds_type=run_args["ds_type"],
+            dataset_used=run_args["dataset"],
+            region=run_args["region"],
+            clim_period=(run_args["clim_start"], run_args["clim_end"]),
+        )
+        da = ds_mhws[stat].isel(year=-1)
+        year = int(da.year.item())
+        if "depth" in da.dims:
+            da = da.sel(depth=0, method="nearest")
+
+        out_dir = config.PRODUCTS_DIR / "diagnostics"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{run_args['dataset']}_{stat}_{year}.png"
+
+        plot_map(
+            lon=da.lon,
+            lat=da.lat,
+            data=da,
+            title=f"{run_args['dataset']} {stat} ({year})",
+            cbar_unit=f"[{config.mhws_stats_units[stat]}]",
+            cmap=mhws_stats_cmaps[stat],
+            save_plot=True,
+            save_path=str(out_path),
+            transparent=False,
+        )
+
+        print(f"Saved diagnostic plot to {out_path}")
+        return str(out_path)
+
     dataset = ingest_data(
         dataset="{{ params.dataset }}",
         years="{{ params.years }}",
@@ -158,7 +206,9 @@ def balearic_mhws():
         clim_end="{{ params.clim_end }}",
     )
 
-    validate_result(result)
+    validation = validate_result(result)
+    diagnostic = plot_diagnostic(result)
+    validation >> diagnostic
 
 
 balearic_mhws()
