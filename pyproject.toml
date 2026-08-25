@@ -5,10 +5,11 @@ description = "Operational pipeline computing marine heatwave metrics for the Ba
 requires-python = ">=3.10"
 dependencies = [
     "numpy<2.4", # marineHeatWaves.py relies on an implicit array-to-scalar conversion that numpy hard-errors on from 2.4+
-    "xarray",
+    "pandas",
+    "xarray>=2025.6", # older versions lack Dataset.to_zarr(zarr_format=...)/Dataset.drop_encoding()
     "dask",
     "scipy",
-    "zarr",
+    "zarr", # the codebase always writes Zarr format 2 explicitly - any zarr-python major version works
 
     # For plotting
     "matplotlib",

@@ -7,6 +7,7 @@ This module only opens those stores and applies spatio-temporal subsetting, and 
 computed MHW datasets produced by `balearic_mhws.processing.compute_mhws`.
 """
 
+import contextlib
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -31,6 +32,21 @@ def _region_selector(region_selector: Optional[str]) -> Tuple[Optional[slice], O
         return None, None
 
     raise ValueError(f"Unknown region_selector {region_selector!r}, only 'balears' is currently defined.")
+
+
+def _open_zarr_store(path: Path, label: str) -> xr.Dataset:
+    """
+    Opens a Zarr store, dropping its on-disk encoding (chunking, compressors, zarr-format-3-only
+    keys like 'serializer', ...) right away - it otherwise rides along through any downstream
+    computation and gets rejected the moment that computation is saved with zarr_format=2 (see
+    config.ZARR_FORMAT). We never round-trip data unchanged, so this encoding is never useful
+    downstream anyway.
+    """
+
+    if not path.exists():
+        raise FileNotFoundError(f"{label} Zarr store not found at {path}. Run the download stage first.")
+
+    return xr.open_zarr(path, consolidated=True).drop_encoding()
 
 
 def open_rep(
@@ -59,10 +75,7 @@ def open_rep(
         The REP dataset.
     """
 
-    if not config.REP_ZARR.exists():
-        raise FileNotFoundError(f"REP Zarr store not found at {config.REP_ZARR}. Run the download stage first.")
-
-    ds_rep = xr.open_zarr(config.REP_ZARR, consolidated=True)
+    ds_rep = _open_zarr_store(config.REP_ZARR, "REP")
 
     if region_selector is not None:
         lon_selector, lat_selector = _region_selector(region_selector)
@@ -115,10 +128,7 @@ def open_medrea(
     if depth_selector == 'default':
         depth_selector = config.MEDREA_DEFAULT_DEPTH_LEVELS
 
-    if not config.MEDREA_ZARR.exists():
-        raise FileNotFoundError(f"MEDREA Zarr store not found at {config.MEDREA_ZARR}. Run the download stage first.")
-
-    ds_medrea = xr.open_zarr(config.MEDREA_ZARR, consolidated=True)
+    ds_medrea = _open_zarr_store(config.MEDREA_ZARR, "MEDREA")
 
     if region_selector is not None:
         lon_selector, lat_selector = _region_selector(region_selector)
@@ -153,10 +163,7 @@ def open_bathy(region_selector: Optional[str] = 'balears') -> xr.Dataset:
         The bathymetry dataset.
     """
 
-    if not config.BATHY_ZARR.exists():
-        raise FileNotFoundError(f"Bathymetry Zarr store not found at {config.BATHY_ZARR}. Run the download stage first.")
-
-    ds_bathy = xr.open_zarr(config.BATHY_ZARR, consolidated=True)
+    ds_bathy = _open_zarr_store(config.BATHY_ZARR, "Bathymetry")
 
     if region_selector is not None:
         lon_selector, lat_selector = _region_selector(region_selector)
@@ -269,11 +276,8 @@ def save_mhws(
 
     print(f"Saving MHWs dataset to {zarr_path}")
 
-    if progress_bar:
-        with _LoggingProgressBar():
-            ds_mhws.to_zarr(zarr_path, mode='w', consolidated=True)
-    else:
-        ds_mhws.to_zarr(zarr_path, mode='w', consolidated=True)
+    with _LoggingProgressBar() if progress_bar else contextlib.nullcontext():
+        ds_mhws.to_zarr(zarr_path, mode='w', consolidated=True, zarr_format=config.ZARR_FORMAT)
 
     print(" -> Saved!")
 
@@ -348,7 +352,7 @@ def write_zarr_incremental(ds: xr.Dataset, store_path: Path, append_dim: str = '
     store_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not store_path.exists():
-        ds.to_zarr(store_path, mode='w', consolidated=True)
+        ds.to_zarr(store_path, mode='w', consolidated=True, zarr_format=config.ZARR_FORMAT)
         print(f"Created new Zarr store at {store_path}.")
         return
 
@@ -362,5 +366,5 @@ def write_zarr_incremental(ds: xr.Dataset, store_path: Path, append_dim: str = '
         print(f"No new {append_dim} values to append to {store_path}.")
         return
 
-    ds_new.to_zarr(store_path, mode='a', append_dim=append_dim, consolidated=True)
+    ds_new.to_zarr(store_path, mode='a', append_dim=append_dim, consolidated=True, zarr_format=config.ZARR_FORMAT)
     print(f"Appended {ds_new[append_dim].size} {append_dim} value(s) to {store_path}.")

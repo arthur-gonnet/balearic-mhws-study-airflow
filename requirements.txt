@@ -1,9 +1,9 @@
 numpy<2.4 # marineHeatWaves.py relies on an implicit array-to-scalar conversion that numpy hard-errors on from 2.4+
 pandas
-xarray
+xarray>=2025.6 # older versions lack Dataset.to_zarr(zarr_format=...)/Dataset.drop_encoding(), both required by data/io.py
 dask
 scipy
-zarr
+zarr # the codebase always writes Zarr format 2 explicitly - any zarr-python major version works
 
 # For plotting
 matplotlib

@@ -231,7 +231,7 @@ def ingest_bathy() -> None:
         ds = ds.rename({'deptho': 'depth'})
 
         config.BATHY_ZARR.parent.mkdir(parents=True, exist_ok=True)
-        ds.to_zarr(config.BATHY_ZARR, mode='w', consolidated=True)
+        ds.to_zarr(config.BATHY_ZARR, mode='w', consolidated=True, zarr_format=config.ZARR_FORMAT)
         ds.close()
 
     print(f"Saved bathymetry to {config.BATHY_ZARR}.")

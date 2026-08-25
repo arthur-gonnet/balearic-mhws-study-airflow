@@ -36,6 +36,12 @@ BATHY_ZARR = RAW_DIR / "bathymetry" / "medrea_bathy.zarr"
 ZARR_TIME_CHUNK = 366
 ZARR_SPATIAL_CHUNK = 100
 
+# Every write always uses Zarr format 2, regardless of which zarr-python major version is
+# installed (2.x or 3.x can both write it) - keeps stores readable across every environment this
+# pipeline runs in (Docker, an HPC cluster with an older Python), without requiring them to agree
+# on a zarr version. Format 3 is newer but only readable by zarr-python 3.x.
+ZARR_FORMAT = 2
+
 # Pattern for computed MHW datasets, mirroring the old NetCDF layout but writing Zarr stores.
 MHWS_ZARR_PATTERN = str(PROCESSED_DIR / "mhws" / "{type}" / "{dataset}_mhws_{region}{detrended}_{clim_start}_{clim_end}.zarr")
 
