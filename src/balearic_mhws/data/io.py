@@ -34,7 +34,7 @@ def _region_selector(region_selector: Optional[str]) -> Tuple[Optional[slice], O
     raise ValueError(f"Unknown region_selector {region_selector!r}, only 'balears' is currently defined.")
 
 
-def _open_zarr_store(path: Path, label: str) -> xr.Dataset:
+def _open_zarr_store(path: Path, label: str, chunks: str | None = 'auto') -> xr.Dataset:
     """
     Opens a Zarr store, dropping its on-disk encoding (chunking, compressors, zarr-format-3-only
     keys like 'serializer', ...) right away - it otherwise rides along through any downstream
@@ -46,7 +46,7 @@ def _open_zarr_store(path: Path, label: str) -> xr.Dataset:
     if not path.exists():
         raise FileNotFoundError(f"{label} Zarr store not found at {path}. Run the download stage first.")
 
-    return xr.open_zarr(path, consolidated=True).drop_encoding()
+    return xr.open_zarr(path, chunks=chunks, consolidated=True).drop_encoding()
 
 
 def open_rep(
@@ -163,7 +163,8 @@ def open_bathy(region_selector: Optional[str] = 'balears') -> xr.Dataset:
         The bathymetry dataset.
     """
 
-    ds_bathy = _open_zarr_store(config.BATHY_ZARR, "Bathymetry")
+    # chunks=None: tiny static field, and staying dask-chunked here leaks into apply_regional_mask.
+    ds_bathy = _open_zarr_store(config.BATHY_ZARR, "Bathymetry", chunks=None)
 
     if region_selector is not None:
         lon_selector, lat_selector = _region_selector(region_selector)
@@ -319,7 +320,8 @@ def load_mhws(
     if not zarr_path.exists():
         raise FileNotFoundError(f"MHWs Zarr store not found at {zarr_path}.")
 
-    ds_mhws = xr.open_zarr(zarr_path, consolidated=True)
+    # chunks=None: small already-computed results; dask-backed arrays break plain scalar formatting.
+    ds_mhws = xr.open_zarr(zarr_path, chunks=None, consolidated=True)
 
     print("Loaded MHWs dataset.")
 
