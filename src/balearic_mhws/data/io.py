@@ -335,7 +335,7 @@ def load_mhws(
 
 def write_zarr_incremental(ds: xr.Dataset, store_path: Path, append_dim: str = 'time') -> None:
     """
-    Writes a dataset to a Zarr store, creating it if missing or appending only the new
+    Writes a dataset to a Zarr store, creating it if missing or merging in only the new
     `append_dim` values otherwise - making repeated ingestion runs idempotent.
 
     Parameters
@@ -347,7 +347,7 @@ def write_zarr_incremental(ds: xr.Dataset, store_path: Path, append_dim: str = '
         Destination Zarr store.
 
     append_dim : str, default='time'
-        Dimension along which new data is appended.
+        Dimension along which new data is merged in.
     """
 
     store_path = Path(store_path)
@@ -358,15 +358,27 @@ def write_zarr_incremental(ds: xr.Dataset, store_path: Path, append_dim: str = '
         print(f"Created new Zarr store at {store_path}.")
         return
 
-    existing = xr.open_zarr(store_path, consolidated=True)
-    last_existing = existing[append_dim].max().values
-    existing.close()
+    existing = xr.open_zarr(store_path, consolidated=True).drop_encoding()
 
-    ds_new = ds.sel({append_dim: ds[append_dim] > last_existing})
+    ds_new = ds.sel({append_dim: ~ds[append_dim].isin(existing[append_dim])})
 
     if ds_new[append_dim].size == 0:
-        print(f"No new {append_dim} values to append to {store_path}.")
+        existing.close()
+        print(f"No new {append_dim} values to write to {store_path}.")
         return
 
-    ds_new.to_zarr(store_path, mode='a', append_dim=append_dim, consolidated=True, zarr_format=config.ZARR_FORMAT)
-    print(f"Appended {ds_new[append_dim].size} {append_dim} value(s) to {store_path}.")
+    if bool((ds_new[append_dim] > existing[append_dim].max()).all()):
+        # Fast path: purely new data past the end - append without touching what's already there.
+        existing.close()
+        ds_new.to_zarr(store_path, mode='a', append_dim=append_dim, consolidated=True, zarr_format=config.ZARR_FORMAT)
+        print(f"Appended {ds_new[append_dim].size} {append_dim} value(s) to {store_path}.")
+        return
+
+    # New data falls before/within the existing range (e.g. backfilling older months after newer
+    # ones were already ingested) - to_zarr's append mode can only extend the end, so the only way
+    # to keep the store's `append_dim` sorted is to merge in-memory and rewrite the whole store.
+    combined = xr.concat([existing, ds_new], dim=append_dim).sortby(append_dim)
+    existing.close()
+    combined = combined.chunk({append_dim: config.ZARR_TIME_CHUNK})
+    combined.to_zarr(store_path, mode='w', consolidated=True, zarr_format=config.ZARR_FORMAT)
+    print(f"Merged {ds_new[append_dim].size} {append_dim} value(s) into {store_path} (rewrote the full store).")
