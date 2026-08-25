@@ -1,84 +1,70 @@
-########################################################################################################################
-##################################### USER NOTES #######################################################################
-########################################################################################################################
-
 """
-This script gathers some options used along the codes of this repository.
+Centralised configuration for the balearic_mhws package: filesystem paths, Copernicus Marine
+credentials, and MHW statistics metadata.
 
-Options description
-----------
-    - extents: dict
-        Defines the bounding box of 'balears' and 'med' regions.
-
-    - mhws_basic_stats: list
-        MHWs annual metrics studied in the report.
-
-    - mhws_stats: list
-        All annual metrics computed.
-
-    - mhws_stats_shortname: dict
-        Short names for annual metrics. For example 'total_days' gives "Total days".
-
-    - mhws_stats_longname: dict
-        Short names for annual metrics. For example 'total_days' gives "Total number of MHW days per year".
-
-    - mhws_stats_units: dict
-        Units for annual metrics. For example 'total_days' gives "days".
-
-    - category_colormap_lin: LinearSegmentedColormap
-        Linear colormap for categories.
-
-    - category_colormap_seq(n): ListedColormap
-        Discrete colormap for categories. n gives the number of steps.
-
-    - category_colormap_oliver: ListedColormap
-        Discrete colormap for categories used in Hobday et al., 2018.
-
-    - mhws_stats_cmaps: dict
-        Units for annual metrics. For example 'total_days' gives "cmo.tempo".
-
-    - mhw_dataset_description: str
-        Description added to MHW metrics datasets.
-
-    - mhw_yearly_dataset_description: str
-        Description added to annual MHW metrics datasets.
-
-    - rep_acknowledgment: str
-        Acknowledgment added to REP-derived datasets.
-
-    - medrea_acknowledgment: str
-        Acknowledgment added to MEDREA-derived datasets.
-
-    - regions: list
-        Subregions considered in the study.
-
-    - region_shortname: dict
-        Short names for regions. For example 'continental_coast' gives "Continental coast".
+Paths are resolved from environment variables so the same code works unmodified in local dev,
+inside the Airflow container, and on an HPC node - each mounts/mounts the data directory
+differently.
 """
 
-########################################################################################################################
-##################################### IMPORTS ##########################################################################
-########################################################################################################################
-
-# Advanced imports
-import numpy as np
-import matplotlib.colors as mcolors
+import os
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 ########################################################################################################################
-##################################### USER INPUT ##########################################################################
+##################################### PATHS #############################################################################
 ########################################################################################################################
 
+# Root of the data directory. Defaults to <repo>/data when running outside a container.
+DATA_DIR = Path(os.environ.get(
+    "BALEARIC_DATA_DIR",
+    Path(__file__).resolve().parents[2] / "data",
+))
 
-    # Maps options
+RAW_DIR = DATA_DIR / "raw"
+PROCESSED_DIR = DATA_DIR / "processed"
+PRODUCTS_DIR = DATA_DIR / "products"
 
-# CURRENTLY NOT USED IN CODE
-extents = {
-    'balears': [-1, 5, 37.7, 41],
-    'med': [-6, 36.33, 30, 46],
+# Raw datasets, ingested as consolidated Zarr stores (see balearic_mhws.data.download)
+REP_ZARR = RAW_DIR / "REP" / "rep.zarr"
+MEDREA_ZARR = RAW_DIR / "MEDREA" / "medrea.zarr"
+BATHY_ZARR = RAW_DIR / "bathymetry" / "medrea_bathy.zarr"
+
+# Chunking used when writing/appending to the raw Zarr stores. A full year per chunk keeps
+# appends chunk-aligned (new ingests add whole chunks) while still being cheap to rechunk to
+# a single time chunk before running the MHW computation.
+ZARR_TIME_CHUNK = 366
+ZARR_SPATIAL_CHUNK = 100
+
+# Pattern for computed MHW datasets, mirroring the old NetCDF layout but writing Zarr stores.
+MHWS_ZARR_PATTERN = str(PROCESSED_DIR / "mhws" / "{type}" / "{dataset}_mhws_{region}{detrended}_{clim_start}_{clim_end}.zarr")
+
+########################################################################################################################
+##################################### DOWNLOAD SOURCES ##################################################################
+########################################################################################################################
+
+# Copernicus Marine Service credentials. Read from the environment - no interactive prompts,
+# so the download stage can run unattended from Airflow/Slurm.
+COPERNICUS_USERNAME = os.environ.get("USERNAME_COPERNICUS") or None
+COPERNICUS_PASSWORD = os.environ.get("PASSWORD_COPERNICUS") or None
+
+REP_DATASET_ID = "cmems_SST_MED_SST_L4_REP_OBSERVATIONS_010_021"
+MEDREA_DATASET_ID = "med-cmcc-tem-rean-d"
+MEDREA_BATHY_DATASET_ID = "cmems_mod_med_phy_my_4.2km_static"
+
+# Spatial/depth extent considered by this study
+SPATIAL_EXTENT: Dict[str, float] = {
+    "minimum_longitude": -0.9,
+    "maximum_longitude": 5.1,
+    "minimum_latitude": 37.6,
+    "maximum_latitude": 41.1,
+    "minimum_depth": 0,
+    "maximum_depth": 3000,
 }
 
-
-    # MHWs statistics 
+########################################################################################################################
+##################################### MHWS STATISTICS ###################################################################
+########################################################################################################################
 
 # Basic MHWs statistics
 mhws_basic_stats = [
@@ -133,7 +119,6 @@ mhws_stats = [
     'temp_min',
     'temp_mean',
     'temp_max',
-    # 'mean_thresh',
 ]
 
 # Short names for MHWs statistics
@@ -250,52 +235,6 @@ mhws_stats_units = {
     'mean_thresh':          "°C",
 }
 
-category_colors = ['#ffe7a7', '#fdb941', '#fe821f', '#e84e1c', '#be2e19', '#8b1c15', '#5b0b07', '#2b0403']
-category_colormap_lin = mcolors.LinearSegmentedColormap.from_list('linear_category_cmap', category_colors)
-category_colormap_seq = lambda n : mcolors.ListedColormap(category_colormap_lin(np.linspace(0, 1, n)))
-
-# Category from Oliver
-category_colors_oliver = { 1: '#ffd86e', 2: '#ff621f', 3: '#df391b', 4: '#861a15'}
-category_colormap_oliver = mcolors.ListedColormap([category_colors_oliver[i] for i in category_colors_oliver])
-
-# Colormaps to be used for each MHWs statistics
-mhws_stats_cmaps = {
-    'count':                'cmo.ice_r',                 # 'Purples',
-    'total_days':           'cmo.tempo',                 # 'Blues',
-    'moderate_days':        'cmo.tempo',                 # 'Blues',
-    'strong_days':          'cmo.tempo',                 # 'Blues',
-    'severe_days':          'cmo.tempo',                 # 'Blues',
-    'extreme_days':         'cmo.tempo',                 # 'Blues',
-
-    'duration':             'cmo.matter',                   # 'Blues', 'cmo.matter'
-
-    'total_icum':           'cmo.solar_r',               # 'Oranges',
-    'intensity_cumulative': 'cmo.solar_r',               # 'Oranges',
-
-    'intensity_max_max':    'cmo.amp',                   # 'Reds',
-    'intensity_max':        'cmo.amp',                   # 'Reds',
-    'intensity_mean':       'cmo.amp',                   # 'Reds',
-    'intensity_mean_byday': 'cmo.amp',
-    'intensity_var':        'cmo.amp',                   # 'Reds',
-    
-    'total_scum':           category_colormap_lin,
-    'severity_cumulative':  category_colormap_lin,
-
-    'severity_max_max':     category_colormap_lin,
-    'severity_max':         category_colormap_lin,
-    'severity_mean':        category_colormap_lin,
-    'severity_mean_byday':  category_colormap_lin,
-    'severity_var':         category_colormap_lin,
-
-    'rate_onset':           'cmo.speed',                 # 'YlOrRd',
-    'rate_decline':         'cmo.speed',                 # 'YlOrRd',
-
-    'temp_min':             'cmo.thermal',
-    'temp_mean':            'cmo.thermal',
-    'temp_max':             'cmo.thermal',
-    'mean_thresh':          'cmo.amp',
-}
-
 # Description to add to generated MHWs dataset
 mhw_dataset_description = "MHWs statistics computed using the marineHeatWaves " \
         "module for python developped by Eric C. J. Oliver."
@@ -308,9 +247,7 @@ rep_acknowledgment = 'Generated using E.U. Copernicus Marine Service Information
 medrea_acknowledgment = 'Generated using E.U. Copernicus Marine Service Information, ' \
         'Mediterranean Sea Physics Reanalysis (DOI: https://doi.org/10.25423/CMCC/MEDSEA_MULTIYEAR_PHY_006_004_E3R1)'
 
-    # Regions 
-
-# Basic MHWs statistics
+# Subregions considered in the study
 regions = [
     'continental_coast',
     'balearic_coast',

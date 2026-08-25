@@ -1,36 +1,48 @@
-# <h1 style="text-align: center;"> Balearic MHWs study </h1>
+# <h1 style="text-align: center;"> Balearic MHWs study - operational pipeline </h1>
 
-This repository contains all the code used to produce figures for the master thesis entitled “Marine heatwaves in the Balearic Islands region”.
+This repository is an operational fork of the code originally used to produce figures for the master thesis entitled "Marine heatwaves in the Balearic Islands region" (see the [original repository](https://github.com/arthur-gonnet/balearic-mhws-study)). It turns that thesis code into a containerized, orchestrated pipeline.
 
 ## Overview
 
-This code is meant to compute and visualise marine heatwaves (MHWs) in the Balearic Islands region. It is intended to provide a reproducible, modular and extensible workflow for:
+This code computes marine heatwave (MHW) metrics in the Balearic Islands region, orchestrated as a scheduled, unattended pipeline rather than a set of notebooks run by hand:
 
-- Downloading and handling large oceanographic datasets
-- Computing MHW metrics using Hobday et al. (2016) definition of MHWs
-- Dask’s chunking, vectorisation, and parallelisation for efficient and adaptive computing
-- Generating figures for reports and presentations
+- **Docker Compose** runs a full Airflow 3 stack (postgres, redis, scheduler, dag-processor, worker, triggerer, apiserver).
+- **Airflow** orchestrates the pipeline: ingest raw data, compute MHW metrics, validate the result.
+- **Zarr** is the storage format for both raw ingested datasets and computed MHW results, replacing the original per-month NetCDF files - chunked and append-friendly, so incremental ingestion and parallel dask computation are both cheap.
+- **Slurm** sbatch scripts let the compute-heavy stage run on an HPC cluster instead of in-process, via SSH from the Airflow DAG, when one is configured.
 
 ## What is in here?
 
- - `Code/` :
-    Python notebooks and scripts that compute and visualise MHWs metrics.
+- `dags/` : the Airflow DAG (`balearic_mhws.py`) - ingest → compute → validate.
+- `pipelines/mhws_pipeline.py` : the pipeline's CLI entrypoint. Both the DAG (local runs) and the Slurm sbatch scripts (cluster runs) call into this - no logic is duplicated between the two.
+- `src/balearic_mhws/` : the installable package - `data/` (Zarr I/O + Copernicus Marine ingestion), `processing/` (the MHW detection algorithm and its dask-parallelized wrapper), `config.py` (paths, stats metadata, resolved from environment variables).
+- `src/balearic_mhws_OLD/` : the original thesis code, kept as reference until the plotting/report generation part of it (`basic_plotter.py`, `utils.py`) is ported to the new architecture.
+- `hpc/slurm/` : sbatch scripts for running ingestion/computation on a Slurm cluster.
+- `config/` : Airflow configuration (`airflow.cfg`).
+- `tests/` : pytest suite covering the computation, I/O, and ingestion logic without needing network access or real data.
+- `data/` : raw and processed Zarr stores (gitignored - populated by running the pipeline).
 
- - `Data/` :
-    Holds downloaded CMEMS datasets and computed MHWs datasets.
+## How should this be run?
 
- - `Documents/` :
-    Folder containing the original master thesis report and presentation using the code herein.
+1. Copy `.env.example` to `.env` and fill in what you need (see the comments in that file - at minimum `AIRFLOW_UID` on Linux; `USERNAME_COPERNICUS`/`PASSWORD_COPERNICUS` to actually download data; `SLURM_SSH_HOST` and friends only if pointing compute at a real cluster).
+2. `docker compose build`
+3. `docker compose up airflow-init` (first time only, to set up the database and admin user)
+4. `docker compose up -d`
+5. Open the Airflow UI at `http://localhost:8080` (default login `airflow`/`airflow`), or trigger the DAG from the CLI:
+   ```
+   docker compose exec airflow-apiserver airflow dags trigger balearic_mhws \
+     --conf '{"dataset": "rep", "region": "balears", "clim_start": 1987, "clim_end": 2021}'
+   ```
 
-## How should this code be runned?
-
-See the `README.md` inside the Code folder for more details. 
+Running the pipeline CLI directly (what the Slurm sbatch scripts do) works the same way outside Airflow, given `PYTHONPATH` includes `src` and the repo root:
+```
+python -m pipelines.mhws_pipeline download --dataset rep --years 2020:2023
+python -m pipelines.mhws_pipeline compute --dataset rep --clim-start 1987 --clim-end 2021
+```
 
 ## External data
 
-For most of the code here, external data is expected. Due to the large size of those files, they are not included in the GitHub repository.
-
-See the `README.md` inside the Data folder for more details.
+Raw data is downloaded from the Copernicus Marine Service by the pipeline's `download` stage (`src/balearic_mhws/data/download.py`) directly into Zarr stores under `data/raw/` - it isn't checked into the repository. A Copernicus Marine account is required; create one at https://data.marine.copernicus.eu/register.
 
 ## License
 

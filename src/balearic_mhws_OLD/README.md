@@ -1,26 +1,18 @@
-# Code/pyscripts folder
+# balearic_mhws_OLD folder
 
-In this folder, Python scripts define functions that are used in the Python notebooks. The code here has been intended to be reusable.
+This is the original thesis-era code, kept as reference until its remaining parts are ported to the
+operational pipeline in `src/balearic_mhws/`. `load_save_dataset.py`, `mhw_computer.py`, `options.py`
+and `marineHeatWaves.py` have already been ported (to `balearic_mhws.data.io`/`.download`,
+`balearic_mhws.processing.compute_mhws`, `balearic_mhws.config`, and
+`balearic_mhws.processing.marineHeatWaves` respectively) and removed from here.
 
 ## What is in here?
 
- - `load_save_dataset.py` :
-     Functions for loading and saving datasets from or to the Data/ folder.
-
- - `mhws_computer.py` :
-     Core logic for computing MHW metrics from temperature datasets.
-
  - `basic_plotter.py` :
-     Functions for generating figures from datasets.
-
- - `options.py` :
-     Centralised configuration and options used by other scripts.
+     Functions for generating figures from datasets. Not yet ported.
 
  - `utils.py` :
-     Helper functions for various tasks.
-
- - `marineHeatWaves.py` :
-     Modified version of *marineHeatWaves* module for Python developed by Eric C. J. Oliver. (see License section)
+     Helper functions for various tasks (regional masks, Mann-Kendall trend test, etc). Not yet ported.
 
 ## License
 

@@ -1,0 +1,31 @@
+[project]
+name = "balearic-mhws"
+version = "0.1.0"
+description = "Operational pipeline computing marine heatwave metrics for the Balearic Islands region"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy<2.4", # marineHeatWaves.py relies on an implicit array-to-scalar conversion that numpy hard-errors on from 2.4+
+    "xarray",
+    "dask",
+    "scipy",
+    "zarr",
+
+    # For plotting
+    "matplotlib",
+    "cartopy",
+    "geopy",
+    "shapely",
+    "cmocean",
+    "roman",
+    "pymannkendall",
+
+    # For downloading the data
+    "copernicusmarine",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

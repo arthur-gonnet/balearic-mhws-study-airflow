@@ -1,13 +1,12 @@
 .vscode
 
-Data/*/**
-!Data/*/*.md
+data/*/**
+!data/*/README.md
 
-Datos - OLD
+logs/*
+!logs/.gitkeep
 
-Figures/*
-merge previous commits
-Code/pyscripts/marineHeatWaves copy.py
-Code/extra
+.env
+*.egg-info/
 
 **/__pycache__/

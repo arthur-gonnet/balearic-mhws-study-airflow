@@ -1,9 +1,5 @@
-########################################################################################################################
-##################################### USER NOTES #######################################################################
-########################################################################################################################
-
 """
-This script gathers all the code used to compute marine heatwaves metrics from a temperature datasets. 
+This script gathers all the code used to compute marine heatwaves metrics from a temperature datasets.
 
 
 Functions description
@@ -26,12 +22,12 @@ Functions description
 
 Examples
 ----------
-    from pyscripts.load_save_dataset import load_rep, load_medrea, save_mhws_dataset
-    from pyscripts.mhw_computer import compute_mhw_yearly
+    from balearic_mhws.data.io import open_rep, open_medrea, save_mhws
+    from balearic_mhws.processing.compute_mhws import compute_mhw_yearly
 
     # For REP
 
-    ds_rep = load_rep()
+    ds_rep = open_rep()
 
     ds_mhws = compute_mhw_yearly(
         ds_rep,
@@ -39,7 +35,7 @@ Examples
         clim_period = clim_period,
     )
 
-    ds_mhws = save_mhws_dataset(
+    ds_mhws = save_mhws(
         ds_mhws,
         ds_type = 'yearly',
         dataset_used = 'rep',
@@ -49,7 +45,7 @@ Examples
 
     # For MEDREA
 
-    ds_medrea = load_medrea(
+    ds_medrea = open_medrea(
         region_selector = 'balears',
         depth_selector = [0, 50, 100, 150, 200, 500, 700, 1000, 1500, 2000],
     )
@@ -60,7 +56,7 @@ Examples
         clim_period = clim_period,
     )
 
-    save_mhws_dataset(
+    save_mhws(
         ds_mhws,
         ds_type = 'yearly',
         dataset_used = 'medrea',
@@ -74,11 +70,9 @@ Examples
 ########################################################################################################################
 
 # Basic imports
-import os
-import glob as glob
 import math
 from datetime import date
-from typing import Literal, Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Tuple
 
 # Advanced imports
 import numpy as np
@@ -87,9 +81,8 @@ import xarray as xr
 from dask.diagnostics.progress import ProgressBar
 
 # Local imports
-import pyscripts.marineHeatWaves as mhw
-import pyscripts.options as opts
-# import pyscripts.rt_anatools as rt
+from . import marineHeatWaves as mhw
+from .. import config as opts
 
 ########################################################################################################################
 ##################################### CODE #############################################################################
@@ -128,22 +121,22 @@ def compute_mhw_yearly(
 
     detrend: bool, default=False
         Option to detrend the temperature time serie before computing MHWs.
-    
+
     Returns
     ----------
     ds_mhws: xr.Dataset
         A dataset containing all the 26 annual metrics of `opts.mhws_stats`.
         Includes every dimension of the original dataset, except `'time'` that became `'year'`
         along the process.
-    
+
     Notes
     ----------
         `compute_mhw_yearly()` uses Dask's lazy evaluation. This enables not to load the
         entire dataset on the disk at once, but rather compute the dataset chunk-wise.
-        Also, the computation is triggered only when saving the dataset using `save_mhws_dataset()`
+        Also, the computation is triggered only when saving the dataset using `save_mhws()`
         or using `ds_mhws.compute()`. More information in Dask's documentation.
     """
-    
+
     # Compatibility snippet so that the function can work with both DataArray and Dataset
     if isinstance(ds, xr.Dataset):
         ds = ds[var_name]
@@ -159,7 +152,7 @@ def compute_mhw_yearly(
     if stack:
         print("Stacking dimensions: ", stackable_dims)
         ds = ds.stack(pos=stackable_dims)
-    
+
     # Years of the dataset
     years = np.unique(ds['time.year'].values)
 
@@ -182,7 +175,7 @@ def compute_mhw_yearly(
         # Dimensions of input and output
         input_core_dims     = [['time'], ['time']],
         output_core_dims    = [(['year'])] * len(opts.mhws_stats),
-        
+
         # Type and size of output
         output_dtypes       = [float] * len(opts.mhws_stats),
         dask_gufunc_kwargs  = dict(
@@ -209,7 +202,7 @@ def compute_mhw_yearly(
     # Ordering 'lon' and 'lat' if needed, so that they have the right order for plotting maps
     if 'lon' in stackable_dims and 'lat' in stackable_dims:
         ds_mhws = ds_mhws.transpose('lat', 'lon', 'year', ...)
-    
+
     # Adding variables metadata
     for stat in opts.mhws_stats:
         ds_mhws[stat].attrs['shortname']  = opts.mhws_stats_shortname[stat]
@@ -248,7 +241,7 @@ def compute_mhw_yearly_wrapped(t: NDArray, sst: NDArray, clim_period: Tuple[int,
 
     detrend: bool
         Option to detrend the temperature time serie before computing MHWs.
-    
+
     Returns
     ----------
     mhw_stats: tuple[np.array]
@@ -268,10 +261,6 @@ def compute_mhw_yearly_wrapped(t: NDArray, sst: NDArray, clim_period: Tuple[int,
     t = t.astype('datetime64[D]').astype(int) + 719163 # to ordinal time
     temp = sst.copy()
 
-    # Detrend dataset if demanded
-    # if detrend:
-    #     temp = rt.detrend_timeserie(temp)
-
     # Computing MHWs using mhw module
     mhws, clim = mhw.detect(t, temp, climatologyPeriod=clim_period, cutMhwEventsByYear=True)
     mhwBlock = mhw.blockAverage(t, mhws, clim, temp=temp)
@@ -284,7 +273,6 @@ def compute_mhw_yearly_wrapped(t: NDArray, sst: NDArray, clim_period: Tuple[int,
 # Every stats availables
 mhws_all_events_stats = [
     'time_start', 'time_end', 'time_peak',
-    # 'date_start', 'date_end', 'date_peak',
     'index_start', 'index_end', 'index_peak',
     'duration', 'duration_moderate', 'duration_strong', 'duration_severe', 'duration_extreme',
     'intensity_max', 'intensity_mean', 'intensity_var', 'intensity_cumulative', 'intensity_max_relThresh',
@@ -336,7 +324,7 @@ def compute_mhw_all_events(
 
     detrend: bool, default=False
         Option to detrend the temperature time serie before computing MHWs.
-    
+
     Returns
     ----------
     ds_mhws: xr.Dataset
@@ -345,7 +333,7 @@ def compute_mhw_all_events(
         Includes every dimension of the original dataset. A new dimension has been added:
         `'event_number'`, meant for attributing the event metrics to a specific event.
     """
-    
+
     # Compatibility snippet so that the function can work with both DataArray and Dataset
     if isinstance(ds, xr.Dataset):
         ds = ds[var_name]
@@ -386,7 +374,7 @@ def compute_mhw_all_events(
         # Dimensions of input and output
         input_core_dims     = [['time'], ['time']],
         output_core_dims    = [['event_number']] * len(mhws_all_events_stats) + [['time']] * len(clim_keys),
-        
+
         # Type and size of output
         output_dtypes       = [float] * (len(mhws_all_events_stats) + len(clim_keys)),
         dask_gufunc_kwargs  = dict(
@@ -429,7 +417,7 @@ def compute_mhw_all_events(
         nan_mask = ds_mhws.time_start.isnull().all(dim=dims_to_check)
     else:
         nan_mask = ds_mhws.time_start.isnull()
-    
+
     # Reduce dataset by removing the nans
     if nan_mask.any():
         first_nan = nan_mask.argmax().item()
@@ -476,7 +464,7 @@ def compute_mhw_all_events_wrapped(t: NDArray, sst: NDArray, clim_period: tuple[
 
     detrend: bool
         Option to detrend the temperature time serie before computing MHWs.
-    
+
     Returns
     ----------
     mhw_stats: tuple[np.array]
@@ -492,14 +480,10 @@ def compute_mhw_all_events_wrapped(t: NDArray, sst: NDArray, clim_period: tuple[
         ])
 
         return tuple(nans for _ in opts.mhws_stats)
-    
+
     # Array manipulation to fit mhw module requirements
     t = t.astype('datetime64[D]').astype(int) + 719163 # to ordinal time
     temp = sst.copy()
-
-    # Detrend dataset if demanded
-    # if detrend:
-    #     temp = rt.detrend_timeserie(temp)
 
     # Computing MHWs using mhw module
     mhws, clim = mhw.detect(t, temp, climatologyPeriod=clim_period)
@@ -547,7 +531,7 @@ def get_mhw_ts_from_ds(
 
     calculate_mhw_mask: bool, default=True
         Option to spread event metrics on the daily grid.
-    
+
     Returns
     ----------
     time: np.array
@@ -556,7 +540,7 @@ def get_mhw_ts_from_ds(
     mhws: dict
         All MHWs metrics.
     """
-    
+
     # Extract only one time series
     if not (lon is None or lat is None or depth is None):
         ds = ds_mhws.sel(lon=lon, lat=lat, depth=depth, method='nearest')
@@ -576,29 +560,28 @@ def get_mhw_ts_from_ds(
     if first_nan != 0:
         # Cut the dataset when all the values are nan
         ds = ds.isel(event_number=slice(0, first_nan))
-    
+
     # Format the statistics in a more friendly way
     mhws = {}
 
     for stat in mhws_all_events_stats:
         mhws[stat] = ds[stat].values
-    
+
     for stat in clim_keys:
         mhws['clim_'+stat] = ds['clim_'+stat].values
 
     mhws['n_events'] = len(mhws['time_start'])
-    
+
     mhws['date_start'] = [date.fromordinal(time) for time in mhws['time_start'].astype(int)]
     mhws['date_end'] = [date.fromordinal(time) for time in mhws['time_end'].astype(int)]
     mhws['date_peak'] = [date.fromordinal(time) for time in mhws['time_peak'].astype(int)]
 
     mhws['index_start'] = mhws['index_start'].astype(int)
     mhws['index_end'] = mhws['index_end'].astype(int)
-    
+
     # Spread event metrics on the daily grid
     if calculate_mhw_mask:
         mhw_mask = np.ones(ds.time.size, dtype=bool)
-        # mhws['mhw_number'] = np.zeros(ds.time.size, dtype=float)
         mhws['mhw_number'] = np.full(ds.time.size, np.nan)
 
         for stat in mhws_all_events_useful_stats:
@@ -612,8 +595,7 @@ def get_mhw_ts_from_ds(
                 mhws[f'mhw_{stat}'][mhws['index_start'][ev]:mhws['index_end'][ev]+1] = mhws[stat][ev]
 
         mhws['mhw_intensity'] = mhws['clim_sst'] - mhws['clim_seas']
-        
-        # mhws['mhw_number'][mhw_mask] = np.nan
+
         mhws['mhw_intensity'][mhw_mask] = np.nan
 
         mhws['mhw_mask'] = mhw_mask

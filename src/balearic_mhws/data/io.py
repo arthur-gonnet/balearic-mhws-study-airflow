@@ -1,0 +1,322 @@
+"""
+Zarr-based dataset I/O for the balearic_mhws package.
+
+Raw REP/MEDREA/bathymetry data lives in consolidated, append-friendly Zarr stores (populated by
+`balearic_mhws.data.download`, already normalised to common variable/coordinate names and units).
+This module only opens those stores and applies spatio-temporal subsetting, and reads/writes the
+computed MHW datasets produced by `balearic_mhws.processing.compute_mhws`.
+"""
+
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import xarray as xr
+
+from .. import config
+
+########################################################################################################################
+##################################### RAW DATASETS ######################################################################
+########################################################################################################################
+
+
+def _region_selector(region_selector: Optional[str]) -> Tuple[Optional[slice], Optional[slice]]:
+    """Resolves a named region into (lon_selector, lat_selector) slices."""
+
+    if region_selector == 'balears':
+        return slice(-0.9, 5.1), slice(37.6, 41.1)
+
+    if region_selector is None:
+        return None, None
+
+    raise ValueError(f"Unknown region_selector {region_selector!r}, only 'balears' is currently defined.")
+
+
+def open_rep(
+        time_selector: Optional[str | slice] = None,
+        lon_selector: Optional[float | slice] = None,
+        lat_selector: Optional[float | slice] = None,
+        region_selector: Optional[str] = 'balears',
+) -> xr.Dataset:
+    """
+    Opens the REP Zarr store, with optional spatio-temporal subsetting.
+
+    Parameters
+    ----------
+    time_selector : str | slice[str], optional
+        Time selection applied using xarray's `.sel()`.
+
+    lon_selector, lat_selector : float | slice[float], optional
+        Longitude/latitude selectors applied using xarray's `.sel()`. Overridden by `region_selector`.
+
+    region_selector : str, default='balears', optional
+        Applies a named spatial selector to the dataset. Overrides `lon_selector`/`lat_selector`.
+
+    Returns
+    ----------
+    ds_rep : xarray.Dataset
+        The REP dataset.
+    """
+
+    if not config.REP_ZARR.exists():
+        raise FileNotFoundError(f"REP Zarr store not found at {config.REP_ZARR}. Run the download stage first.")
+
+    ds_rep = xr.open_zarr(config.REP_ZARR, consolidated=True)
+
+    if region_selector is not None:
+        lon_selector, lat_selector = _region_selector(region_selector)
+
+    if lon_selector is not None:
+        ds_rep = ds_rep.sel(lon=lon_selector, method=(None if isinstance(lon_selector, slice) else 'nearest'))
+
+    if lat_selector is not None:
+        ds_rep = ds_rep.sel(lat=lat_selector, method=(None if isinstance(lat_selector, slice) else 'nearest'))
+
+    if time_selector is not None:
+        ds_rep = ds_rep.sel(time=time_selector)
+
+    return ds_rep
+
+
+def open_medrea(
+        time_selector: Optional[str | slice | List[str]] = None,
+        lon_selector: Optional[float | slice | List[float]] = None,
+        lat_selector: Optional[float | slice | List[float]] = None,
+        depth_selector: Optional[float | slice | List[float]] = slice(0, 3000),
+        region_selector: Optional[str] = 'balears',
+) -> xr.Dataset:
+    """
+    Opens the MEDREA Zarr store, with optional spatio-temporal subsetting.
+
+    Parameters
+    ----------
+    time_selector : str | slice[str], optional
+        Time selection applied using xarray's `.sel()`.
+
+    lon_selector, lat_selector : float | slice[float], optional
+        Longitude/latitude selectors applied using xarray's `.sel()`. Overridden by `region_selector`.
+
+    depth_selector : float | slice[float], default=slice(0, 3000), optional
+        Depth selector applied using xarray's `.sel()`.
+
+    region_selector : str, default='balears', optional
+        Applies a named spatial selector to the dataset. Overrides `lon_selector`/`lat_selector`.
+
+    Returns
+    ----------
+    ds_medrea : xarray.Dataset
+        The MEDREA dataset.
+    """
+
+    if not config.MEDREA_ZARR.exists():
+        raise FileNotFoundError(f"MEDREA Zarr store not found at {config.MEDREA_ZARR}. Run the download stage first.")
+
+    ds_medrea = xr.open_zarr(config.MEDREA_ZARR, consolidated=True)
+
+    if region_selector is not None:
+        lon_selector, lat_selector = _region_selector(region_selector)
+
+    if lon_selector is not None:
+        ds_medrea = ds_medrea.sel(lon=lon_selector, method=(None if isinstance(lon_selector, slice) else 'nearest'))
+
+    if lat_selector is not None:
+        ds_medrea = ds_medrea.sel(lat=lat_selector, method=(None if isinstance(lat_selector, slice) else 'nearest'))
+
+    if depth_selector is not None and 'depth' in ds_medrea.dims:
+        ds_medrea = ds_medrea.sel(depth=depth_selector, method=(None if isinstance(depth_selector, slice) else 'nearest'))
+
+    if time_selector is not None:
+        ds_medrea = ds_medrea.sel(time=time_selector)
+
+    return ds_medrea
+
+
+def open_bathy(region_selector: Optional[str] = 'balears') -> xr.Dataset:
+    """
+    Opens the MEDREA bathymetry Zarr store, with optional spatial subsetting.
+
+    Parameters
+    ----------
+    region_selector : str, default='balears', optional
+        Applies a named spatial selector to the dataset.
+
+    Returns
+    ----------
+    ds_bathy : xarray.Dataset
+        The bathymetry dataset.
+    """
+
+    if not config.BATHY_ZARR.exists():
+        raise FileNotFoundError(f"Bathymetry Zarr store not found at {config.BATHY_ZARR}. Run the download stage first.")
+
+    ds_bathy = xr.open_zarr(config.BATHY_ZARR, consolidated=True)
+
+    if region_selector is not None:
+        lon_selector, lat_selector = _region_selector(region_selector)
+        ds_bathy = ds_bathy.sel(lon=lon_selector, lat=lat_selector)
+
+    return ds_bathy
+
+
+########################################################################################################################
+##################################### MHWS DATASETS #####################################################################
+########################################################################################################################
+
+
+def _mhws_zarr_path(
+        ds_type: str,
+        dataset_used: str,
+        detrended: bool,
+        region: str,
+        clim_period: Tuple[int, int],
+) -> Path:
+    return Path(config.MHWS_ZARR_PATTERN.format(
+        type=ds_type,
+        dataset=dataset_used,
+        detrended='_detrended' if detrended else '',
+        region=region,
+        clim_start=clim_period[0],
+        clim_end=clim_period[1],
+    ))
+
+
+def save_mhws(
+        ds_mhws: xr.Dataset,
+        ds_type: str,
+        dataset_used: str,
+        detrended: bool = False,
+        region: str = 'balears',
+        clim_period: Tuple[int, int] = (1987, 2021),
+        progress_bar: bool = True,
+) -> xr.Dataset:
+    """
+    Saves a MHWs dataset as a Zarr store.
+
+    Parameters
+    ----------
+    ds_mhws : xarray.Dataset
+        MHWs dataset to save.
+
+    ds_type : str
+        Can be 'yearly' or 'all_events'.
+
+    dataset_used : str
+        Describes the dataset from which the MHWs computations were performed.
+        Can be `'rep'`, `'medrea_bot'` or `'medrea_50m'` for example.
+
+    region : str, default='balears'
+        Region in which the MHWs computations were performed.
+
+    clim_period : tuple[int, int], default=(1987,2021)
+        Climatology period used for the MHWs computations.
+
+    progress_bar : bool, default=True
+        If `True`, shows a progress bar while writing the dataset.
+
+    Returns
+    ----------
+    ds_mhws : xarray.Dataset
+        The computed MHWs dataset.
+    """
+
+    from dask.diagnostics.progress import ProgressBar
+
+    zarr_path = _mhws_zarr_path(ds_type, dataset_used, detrended, region, clim_period)
+    zarr_path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"Saving MHWs dataset to {zarr_path}")
+
+    if progress_bar:
+        with ProgressBar():
+            ds_mhws.to_zarr(zarr_path, mode='w', consolidated=True)
+    else:
+        ds_mhws.to_zarr(zarr_path, mode='w', consolidated=True)
+
+    print(" -> Saved!")
+
+    return ds_mhws
+
+
+def load_mhws(
+        ds_type: str,
+        dataset_used: str,
+        detrended: bool = False,
+        region: str = 'balears',
+        clim_period: Tuple[int, int] = (1987, 2021),
+) -> xr.Dataset:
+    """
+    Loads a MHWs dataset from its Zarr store.
+
+    Parameters
+    ----------
+    ds_type : str
+        Can be 'yearly' or 'all_events'.
+
+    dataset_used : str
+        Describes the dataset from which the MHWs computations were performed.
+
+    region : str, default='balears'
+        Region in which the MHWs computations were performed.
+
+    clim_period : tuple[int, int], default=(1987,2021)
+        Climatology period used for the MHWs computations.
+
+    Returns
+    ----------
+    ds_mhws : xarray.Dataset
+        The loaded MHWs dataset.
+    """
+
+    zarr_path = _mhws_zarr_path(ds_type, dataset_used, detrended, region, clim_period)
+
+    if not zarr_path.exists():
+        raise FileNotFoundError(f"MHWs Zarr store not found at {zarr_path}.")
+
+    ds_mhws = xr.open_zarr(zarr_path, consolidated=True)
+
+    print("Loaded MHWs dataset.")
+
+    return ds_mhws
+
+
+########################################################################################################################
+##################################### INGEST HELPER #####################################################################
+########################################################################################################################
+
+
+def write_zarr_incremental(ds: xr.Dataset, store_path: Path, append_dim: str = 'time') -> None:
+    """
+    Writes a dataset to a Zarr store, creating it if missing or appending only the new
+    `append_dim` values otherwise - making repeated ingestion runs idempotent.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Dataset to write. Must be chunked (or chunkable) along `append_dim`.
+
+    store_path : Path
+        Destination Zarr store.
+
+    append_dim : str, default='time'
+        Dimension along which new data is appended.
+    """
+
+    store_path = Path(store_path)
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if not store_path.exists():
+        ds.to_zarr(store_path, mode='w', consolidated=True)
+        print(f"Created new Zarr store at {store_path}.")
+        return
+
+    existing = xr.open_zarr(store_path, consolidated=True)
+    last_existing = existing[append_dim].max().values
+    existing.close()
+
+    ds_new = ds.sel({append_dim: ds[append_dim] > last_existing})
+
+    if ds_new[append_dim].size == 0:
+        print(f"No new {append_dim} values to append to {store_path}.")
+        return
+
+    ds_new.to_zarr(store_path, mode='a', append_dim=append_dim, consolidated=True)
+    print(f"Appended {ds_new[append_dim].size} {append_dim} value(s) to {store_path}.")

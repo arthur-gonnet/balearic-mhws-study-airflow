@@ -1,7 +1,9 @@
-numpy
+numpy<2.4 # marineHeatWaves.py relies on an implicit array-to-scalar conversion that numpy hard-errors on from 2.4+
+pandas
 xarray
 dask
 scipy
+zarr
 
 # For plotting
 matplotlib
@@ -14,3 +16,6 @@ pymannkendall
 
 # For downloading the data
 copernicusmarine
+
+# For submitting/polling Slurm jobs from Airflow
+apache-airflow-providers-ssh
