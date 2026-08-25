@@ -20,7 +20,7 @@ export BALEARIC_DATA_DIR="${BALEARIC_DATA_DIR:-${PROJECT_DIR}/data}"
 
 cd "$PROJECT_DIR"
 
-python -m pipelines.mhws_pipeline download \
+python3 -m pipelines.mhws_pipeline download \
     --dataset "${DATASET:-rep}" \
     ${YEARS:+--years "$YEARS"} \
     ${MONTHS:+--months "$MONTHS"}

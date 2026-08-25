@@ -22,7 +22,7 @@ export BALEARIC_DATA_DIR="${BALEARIC_DATA_DIR:-${PROJECT_DIR}/data}"
 
 cd "$PROJECT_DIR"
 
-python -m pipelines.mhws_pipeline compute \
+python3 -m pipelines.mhws_pipeline compute \
     --dataset "${DATASET:-rep}" \
     --region "${REGION:-balears}" \
     --ds-type "${DS_TYPE:-yearly}" \

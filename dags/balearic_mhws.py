@@ -58,6 +58,7 @@ def balearic_mhws():
         clim_end: int = 2021,
     ):
         import os
+        import shlex
 
         # DAG params come through Jinja templating as strings even when their default is an int.
         run_args = {
@@ -75,14 +76,35 @@ def balearic_mhws():
             # rather than computing in-process on the Celery worker.
             import subprocess
 
-            remote_dir = os.environ["SLURM_REMOTE_PROJECT_DIR"]
+            remote_dir = os.environ.get("SLURM_REMOTE_PROJECT_DIR", "")
+            if not remote_dir:
+                raise ValueError(
+                    "SLURM_SSH_HOST is set but SLURM_REMOTE_PROJECT_DIR is empty - "
+                    "set it in .env to the project's path on the remote cluster."
+                )
+
             ssh_user = os.environ.get("SLURM_SSH_USER", "")
             target = f"{ssh_user}@{slurm_host}" if ssh_user else slurm_host
 
-            export_vars = ",".join(f"{key.upper()}={value}" for key, value in run_args.items())
+            # remote_cmd ends up as one string that `ssh` hands to the remote shell to parse -
+            # shlex.quote() every interpolated value so a DAG param or env var containing shell
+            # metacharacters (';', backticks, '$()', ...) can't inject commands on the remote host.
+
+            # Forward SLURM_REMOTE_PROJECT_DIR explicitly rather than relying on it already being
+            # set in the remote environment: `ssh host "command"` runs a non-interactive shell,
+            # which doesn't reliably source ~/.bashrc, so --export=ALL alone can't be trusted to
+            # carry it through even if it's exported there.
+            export_vars = ",".join(
+                f"{key.upper()}={shlex.quote(str(value))}"
+                for key, value in {**run_args, "slurm_remote_project_dir": remote_dir}.items()
+            )
+
+            partition = os.environ.get("SLURM_PARTITION", "")
+            partition_flag = f"--partition={shlex.quote(partition)} " if partition else ""
 
             remote_cmd = (
-                f"cd {remote_dir} && sbatch --wait --export=ALL,{export_vars} hpc/slurm/compute_mhws.sbatch"
+                f"cd {shlex.quote(remote_dir)} && sbatch --wait {partition_flag}"
+                f"--export=ALL,{export_vars} hpc/slurm/compute_mhws.sbatch"
             )
 
             print("Submitting Slurm job over SSH:", remote_cmd)

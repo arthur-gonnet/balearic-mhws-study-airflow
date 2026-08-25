@@ -1,0 +1,13 @@
+# Subset of the root requirements.txt actually needed to run `pipelines.mhws_pipeline
+# compute`/`download` - what a Slurm compute node runs. Skips plotting (matplotlib, cartopy,
+# geopy, shapely, cmocean, roman, pymannkendall) and the Airflow SSH provider, neither of which
+# this node ever imports, to keep test-cluster builds fast.
+numpy<2.4 # marineHeatWaves.py relies on an implicit array-to-scalar conversion that numpy hard-errors on from 2.4+
+pandas
+xarray>=2025.6 # older versions lack Dataset.to_zarr(zarr_format=...)/Dataset.drop_encoding()
+dask
+scipy
+zarr # the codebase always writes Zarr format 2 explicitly - any zarr-python major version works
+
+# For downloading the data
+copernicusmarine
