@@ -472,14 +472,14 @@ def compute_mhw_all_events_wrapped(t: NDArray, sst: NDArray, clim_period: tuple[
         the 4 daily metrics of `clim_keys`.
     """
 
-    # Ignore all-nan timeseries for performance sake
+    # Ignore all-nan timeseries for performance sake. Shapes must match the real branch below.
     if np.isnan(sst).all():
-        nans = np.array([
-            np.nan
-            for _ in range(t[0].astype('datetime64[Y]').astype(int) + 1970, t[-1].astype('datetime64[Y]').astype(int) + 1970+1)
-        ])
+        n_events = math.ceil(len(t) / 8)
 
-        return tuple(nans for _ in opts.mhws_stats)
+        return tuple(
+            [np.full(n_events, np.nan) for _ in mhws_all_events_stats]
+            + [np.full(len(t), np.nan) for _ in clim_keys]
+        )
 
     # Array manipulation to fit mhw module requirements
     t = t.astype('datetime64[D]').astype(int) + 719163 # to ordinal time
