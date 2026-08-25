@@ -16,10 +16,8 @@ from typing import Dict, List, Tuple
 ########################################################################################################################
 
 # Root of the data directory. Defaults to <repo>/data when running outside a container.
-DATA_DIR = Path(os.environ.get(
-    "BALEARIC_DATA_DIR",
-    Path(__file__).resolve().parents[2] / "data",
-))
+# `or` (not `.get(..., default)`) so an empty BALEARIC_DATA_DIR - how .env ships it - doesn't resolve to Path("").
+DATA_DIR = Path(os.environ.get("BALEARIC_DATA_DIR") or Path(__file__).resolve().parents[2] / "data")
 
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
