@@ -112,9 +112,13 @@ def balearic_mhws():
         if "year" not in ds_mhws.coords or ds_mhws.sizes.get("year", 0) == 0:
             raise ValueError("MHWs dataset has no 'year' coordinate - computation likely failed.")
 
-        all_nan_vars = [var for var in ds_mhws.data_vars if bool(ds_mhws[var].isnull().all())]
-        if all_nan_vars:
-            raise ValueError(f"MHWs dataset variables are entirely NaN: {all_nan_vars}")
+        # Only 'count' is checked, not every variable: duration/intensity/severity/rate stats are
+        # legitimately NaN dataset-wide whenever zero MHW events were detected anywhere (e.g. a
+        # short climatology period), which is a valid result, not a computation failure. 'count'
+        # being entirely NaN, on the other hand, means every grid cell was land/no-data - a real
+        # sign the wrong region/dataset was computed.
+        if bool(ds_mhws["count"].isnull().all()):
+            raise ValueError("MHWs dataset's 'count' variable is entirely NaN - no valid grid cells were computed.")
 
         print(f"Validated {run_args['dataset']} MHWs dataset: {dict(ds_mhws.sizes)}")
 
