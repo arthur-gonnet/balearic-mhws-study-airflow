@@ -132,23 +132,22 @@ def ingest_rep(years: Iterable[int] = range(1982, 2024), months: Iterable[int] =
         print("REP Zarr store already up to date.")
         return
 
+    # Written one month at a time (not batched per year) so an interrupted run loses at most one
+    # month of already-downloaded progress, not up to a whole year's worth.
     with tempfile.TemporaryDirectory() as tmp_dir:
         for year, year_months in sorted(missing.items()):
-            print(f"Downloading REP {year} ({len(year_months)} month(s): {year_months})...")
+            for month in year_months:
+                print(f"Downloading REP {year}-{month:02d}...")
 
-            monthly_paths = [
-                _download_month_netcdf(config.REP_DATASET_ID, ["analysed_sst"], year, month, tmp_dir)
-                for month in year_months
-            ]
+                path = _download_month_netcdf(config.REP_DATASET_ID, ["analysed_sst"], year, month, tmp_dir)
 
-            ds = xr.open_mfdataset(monthly_paths)
-            ds = _normalize_rep(ds)
-            ds = ds.chunk({"time": -1, "lat": config.ZARR_SPATIAL_CHUNK, "lon": config.ZARR_SPATIAL_CHUNK})
+                ds = xr.open_dataset(path)
+                ds = _normalize_rep(ds)
+                ds = ds.chunk({"time": -1, "lat": config.ZARR_SPATIAL_CHUNK, "lon": config.ZARR_SPATIAL_CHUNK})
 
-            write_zarr_incremental(ds, config.REP_ZARR)
-            ds.close()
+                write_zarr_incremental(ds, config.REP_ZARR)
+                ds.close()
 
-            for path in monthly_paths:
                 path.unlink()
 
     print("Done !")
@@ -173,28 +172,27 @@ def ingest_medrea(years: Iterable[int] = range(1987, 2023), months: Iterable[int
         print("MEDREA Zarr store already up to date.")
         return
 
+    # Written one month at a time (not batched per year) so an interrupted run loses at most one
+    # month of already-downloaded progress, not up to a whole year's worth.
     with tempfile.TemporaryDirectory() as tmp_dir:
         for year, year_months in sorted(missing.items()):
-            print(f"Downloading MEDREA {year} ({len(year_months)} month(s): {year_months})...")
+            for month in year_months:
+                print(f"Downloading MEDREA {year}-{month:02d}...")
 
-            monthly_paths = [
-                _download_month_netcdf(config.MEDREA_DATASET_ID, ["thetao"], year, month, tmp_dir)
-                for month in year_months
-            ]
+                path = _download_month_netcdf(config.MEDREA_DATASET_ID, ["thetao"], year, month, tmp_dir)
 
-            ds = xr.open_mfdataset(monthly_paths)
-            ds = _normalize_medrea(ds)
-            ds = ds.chunk({
-                "time": -1,
-                "lat": config.ZARR_SPATIAL_CHUNK,
-                "lon": config.ZARR_SPATIAL_CHUNK,
-                "depth": -1,
-            })
+                ds = xr.open_dataset(path)
+                ds = _normalize_medrea(ds)
+                ds = ds.chunk({
+                    "time": -1,
+                    "lat": config.ZARR_SPATIAL_CHUNK,
+                    "lon": config.ZARR_SPATIAL_CHUNK,
+                    "depth": -1,
+                })
 
-            write_zarr_incremental(ds, config.MEDREA_ZARR)
-            ds.close()
+                write_zarr_incremental(ds, config.MEDREA_ZARR)
+                ds.close()
 
-            for path in monthly_paths:
                 path.unlink()
 
     print("Done !")
