@@ -8,9 +8,11 @@ computed MHW datasets produced by `balearic_mhws.processing.compute_mhws`.
 """
 
 import contextlib
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import xarray as xr
 from dask.diagnostics.progress import ProgressBar
 from dask.utils import format_time
@@ -375,10 +377,54 @@ def write_zarr_incremental(ds: xr.Dataset, store_path: Path, append_dim: str = '
         return
 
     # New data falls before/within the existing range (e.g. backfilling older months after newer
-    # ones were already ingested) - to_zarr's append mode can only extend the end, so the only way
-    # to keep the store's `append_dim` sorted is to merge in-memory and rewrite the whole store.
-    combined = xr.concat([existing, ds_new], dim=append_dim).sortby(append_dim)
+    # ones were already ingested). Rebuilt one of `existing`'s own on-disk chunks at a time (not
+    # the whole store in one pass): a Zarr chunk can only be read by decompressing it whole, so a
+    # single MEDREA chunk (~111 depth levels) costs ~1.3GB regardless of how the *output* is
+    # chunked - touching several at once is what was exhausting RAM here.
+    existing_times = existing[append_dim].values
+    chunk_sizes = existing.chunksizes[append_dim]
+    bounds = np.concatenate([[0], np.cumsum(chunk_sizes)])
+
+    ds_new = ds_new.sortby(append_dim)
+    insert_pos = existing_times.searchsorted(ds_new[append_dim].values)
+    # Which existing chunk each new value should be merged into - the one it falls inside, or the
+    # nearest one if it falls in a gap between/outside existing chunks.
+    window_of_new = np.clip(bounds[1:].searchsorted(insert_pos, side='left'), 0, len(chunk_sizes) - 1)
+
+    # Non-append-dim chunk sizes computed once (not per window): a window mixing in new data and
+    # a window of untouched `existing` data start from different chunk structures, so 'auto'
+    # computed separately per window can pick different sizes - and Zarr rejects a window's write
+    # if its chunk grid doesn't match what an earlier window already established.
+    other_dims = [d for d in existing.dims if d != append_dim]
+    reference = existing.chunk({append_dim: config.ZARR_TIME_CHUNK, **{d: 'auto' for d in other_dims}})
+    fixed_chunks = {d: reference.chunksizes[d][0] for d in other_dims}
+
+    tmp_path = store_path.parent / f"{store_path.name}.tmp"
+
+    for window in range(len(chunk_sizes)):
+        window_existing = existing.isel({append_dim: slice(bounds[window], bounds[window + 1])})
+        new_mask = window_of_new == window
+
+        if new_mask.any():
+            window_ds = xr.concat([window_existing, ds_new.isel({append_dim: new_mask})], dim=append_dim)
+            window_ds = window_ds.sortby(append_dim)
+        else:
+            window_ds = window_existing
+
+        window_ds = window_ds.chunk({**fixed_chunks, append_dim: config.ZARR_TIME_CHUNK})
+
+        # Writing to a sibling path and swapping it in at the end (not onto store_path directly)
+        # keeps a crash mid-rewrite from ever leaving store_path half-migrated or corrupted.
+        if window == 0:
+            writer = window_ds.to_zarr(tmp_path, mode='w', consolidated=True, zarr_format=config.ZARR_FORMAT, compute=False)
+        else:
+            writer = window_ds.to_zarr(
+                tmp_path, mode='a', append_dim=append_dim, consolidated=True, zarr_format=config.ZARR_FORMAT, compute=False,
+            )
+        writer.compute(scheduler='synchronous')
+
     existing.close()
-    combined = combined.chunk({append_dim: config.ZARR_TIME_CHUNK})
-    combined.to_zarr(store_path, mode='w', consolidated=True, zarr_format=config.ZARR_FORMAT)
+    shutil.rmtree(store_path)
+    tmp_path.rename(store_path)
+
     print(f"Merged {ds_new[append_dim].size} {append_dim} value(s) into {store_path} (rewrote the full store).")

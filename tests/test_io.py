@@ -54,3 +54,44 @@ def test_write_zarr_incremental_is_idempotent(tmp_path):
 
     result = xr.open_zarr(store_path, consolidated=True)
     assert result.sizes["time"] == 5
+
+
+def test_write_zarr_incremental_backfills_gap_across_multiple_native_chunks(tmp_path):
+    store_path = tmp_path / "raw.zarr"
+
+    time1 = pd.date_range("2000-01-01", periods=5, freq="D")
+    ds1 = xr.Dataset({"T": ("time", np.arange(5.0))}, coords={"time": time1})
+    write_zarr_incremental(ds1, store_path)
+
+    time2 = pd.date_range("2000-01-11", periods=5, freq="D")  # skip days 6-10, leaving a gap
+    ds2 = xr.Dataset({"T": ("time", np.arange(5.0) + 100)}, coords={"time": time2})
+    write_zarr_incremental(ds2, store_path)
+
+    # Two separate writes land as two separate on-disk chunks - backfilling the gap now exercises
+    # the merge-rewrite path's per-native-chunk loop, not just a single chunk.
+    assert xr.open_zarr(store_path, consolidated=True).chunksizes["time"] == (5, 5)
+
+    time3 = pd.date_range("2000-01-06", periods=5, freq="D")
+    ds3 = xr.Dataset({"T": ("time", np.arange(5.0) + 200)}, coords={"time": time3})
+    write_zarr_incremental(ds3, store_path)
+
+    result = xr.open_zarr(store_path, consolidated=True).compute()
+    assert result.sizes["time"] == 15
+    np.testing.assert_array_equal(result["T"].values, np.concatenate([ds1["T"].values, ds3["T"].values, ds2["T"].values]))
+
+
+def test_write_zarr_incremental_backfills_before_existing_range(tmp_path):
+    store_path = tmp_path / "raw.zarr"
+
+    time1 = pd.date_range("2000-01-10", periods=10, freq="D")
+    ds1 = xr.Dataset({"T": ("time", np.arange(10.0))}, coords={"time": time1})
+    write_zarr_incremental(ds1, store_path)
+
+    # Backfill days before the existing range - takes the merge-and-rewrite fallback path.
+    time2 = pd.date_range("2000-01-01", periods=5, freq="D")
+    ds2 = xr.Dataset({"T": ("time", np.arange(5.0) + 100)}, coords={"time": time2})
+    write_zarr_incremental(ds2, store_path)
+
+    result = xr.open_zarr(store_path, consolidated=True).compute()
+    assert result.sizes["time"] == 15
+    np.testing.assert_array_equal(result["T"].values, np.concatenate([ds2["T"].values, ds1["T"].values]))

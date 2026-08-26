@@ -183,11 +183,14 @@ def ingest_medrea(years: Iterable[int] = range(1987, 2023), months: Iterable[int
 
                 ds = xr.open_dataset(path)
                 ds = _normalize_medrea(ds)
+                # depth: 'auto', not -1 - MEDREA has ~111 levels, so a single depth chunk makes
+                # each Zarr chunk ~1.3GB (366 time x 111 depth x 84 lat x 100 lon x float32),
+                # which is what was exhausting RAM on write. 'auto' keeps chunks dask-sized instead.
                 ds = ds.chunk({
                     "time": -1,
                     "lat": config.ZARR_SPATIAL_CHUNK,
                     "lon": config.ZARR_SPATIAL_CHUNK,
-                    "depth": -1,
+                    "depth": "auto",
                 })
 
                 write_zarr_incremental(ds, config.MEDREA_ZARR)
