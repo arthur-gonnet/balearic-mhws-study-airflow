@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List
 
 import copernicusmarine
+import dask
 import pandas as pd
 import xarray as xr
 
@@ -45,6 +46,41 @@ def _missing_year_months(store_path: Path, years: Iterable[int], months: Iterabl
         missing.setdefault(year, []).append(month)
 
     return missing
+
+
+def _check_month_written(store_path: Path, year: int, month: int, var_name: str = 'T') -> None:
+    """
+    Reads one day of a month back from the store and raises if it holds no valid value.
+
+    A write that is interrupted - the machine running out of memory, for instance - leaves the
+    month's timestamps in the store with nothing behind them. `_missing_year_months` only looks at
+    those timestamps, so such a month is taken for granted on every later run and never
+    redownloaded. Reading a single day back costs about a second against the minutes a month takes
+    to download, and turns a silent hole in the data into a failed run.
+    """
+
+    ds = xr.open_zarr(store_path, consolidated=True)
+    idx = pd.DatetimeIndex(ds.time.values)
+    written = idx[(idx.year == year) & (idx.month == month)]
+
+    try:
+        if written.empty:
+            raise RuntimeError(f"{year}-{month:02d} is missing from {store_path} right after being written.")
+
+        day = ds[var_name].sel(time=written[len(written) // 2])
+        if 'depth' in day.dims:
+            day = day.isel(depth=0)
+
+        with dask.config.set(scheduler='synchronous'):
+            empty = bool(day.isnull().all().compute())
+
+        if empty:
+            raise RuntimeError(
+                f"{year}-{month:02d} holds no valid value in {store_path} right after being written. "
+                "The write was likely interrupted - drop that month from the store and ingest it again."
+            )
+    finally:
+        ds.close()
 
 
 def _download_month_netcdf(dataset_id: str, variables: List[str], year: int, month: int, tmp_dir: str) -> Path:
@@ -146,6 +182,7 @@ def ingest_rep(years: Iterable[int] = range(1982, 2024), months: Iterable[int] =
                 ds = ds.chunk({"time": -1, "lat": config.ZARR_SPATIAL_CHUNK, "lon": config.ZARR_SPATIAL_CHUNK})
 
                 write_zarr_incremental(ds, config.REP_ZARR)
+                _check_month_written(config.REP_ZARR, year, month)
                 ds.close()
 
                 path.unlink()
@@ -194,6 +231,7 @@ def ingest_medrea(years: Iterable[int] = range(1987, 2023), months: Iterable[int
                 })
 
                 write_zarr_incremental(ds, config.MEDREA_ZARR)
+                _check_month_written(config.MEDREA_ZARR, year, month)
                 ds.close()
 
                 path.unlink()

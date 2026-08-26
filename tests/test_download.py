@@ -8,9 +8,15 @@ to a downloaded dataset before it is written to a store.
 
 import numpy as np
 import pandas as pd
+import pytest
 import xarray as xr
 
-from balearic_mhws.data.download import _missing_year_months, _normalize_medrea, _normalize_rep
+from balearic_mhws.data.download import (
+    _check_month_written,
+    _missing_year_months,
+    _normalize_medrea,
+    _normalize_rep,
+)
 
 
 def test_missing_year_months_empty_store(tmp_path):
@@ -82,3 +88,29 @@ def test_normalize_medrea():
     assert list(out.data_vars) == ["T"]
     assert out["T"].attrs["unit"] == "°C"
     np.testing.assert_array_equal(out.time.values, pd.to_datetime(["2020-01-01", "2020-01-02"]).values)
+
+
+def _month_store(tmp_path, values):
+    time = pd.date_range("2020-01-01", periods=5, freq="D")
+    ds = xr.Dataset({"T": (("time", "lat", "lon"), values)}, coords={"time": time, "lat": [0.0], "lon": [0.0]})
+
+    store_path = tmp_path / "raw.zarr"
+    ds.to_zarr(store_path, mode="w", consolidated=True)
+    return store_path
+
+
+def test_check_month_written_accepts_a_month_holding_data(tmp_path):
+    _check_month_written(_month_store(tmp_path, np.ones((5, 1, 1))), 2020, 1)
+
+
+def test_check_month_written_rejects_an_empty_month(tmp_path):
+    # An interrupted write leaves the timestamps in place with nothing behind them.
+    store_path = _month_store(tmp_path, np.full((5, 1, 1), np.nan))
+
+    with pytest.raises(RuntimeError, match="no valid value"):
+        _check_month_written(store_path, 2020, 1)
+
+
+def test_check_month_written_rejects_a_month_that_is_not_there(tmp_path):
+    with pytest.raises(RuntimeError, match="missing"):
+        _check_month_written(_month_store(tmp_path, np.ones((5, 1, 1))), 2020, 7)
