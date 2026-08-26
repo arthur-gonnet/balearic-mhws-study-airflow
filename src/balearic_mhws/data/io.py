@@ -382,7 +382,16 @@ def write_zarr_incremental(ds: xr.Dataset, store_path: Path, append_dim: str = '
         # single chunk, where the store splits it.
         ds_new = ds_new.chunk({d: existing.chunksizes[d][0] for d in existing.dims if d != append_dim})
         existing.close()
-        ds_new.to_zarr(store_path, mode='a', append_dim=append_dim, consolidated=True, zarr_format=config.ZARR_FORMAT)
+
+        # Written one chunk at a time, as the appended values rarely fill the store's last chunk
+        # along `append_dim` - Zarr then rereads and rewrites that whole chunk, once per position
+        # along the other dimensions, which the default scheduler would do all at once.
+        writer = ds_new.to_zarr(
+            store_path, mode='a', append_dim=append_dim, consolidated=True, zarr_format=config.ZARR_FORMAT,
+            compute=False,
+        )
+        writer.compute(scheduler='synchronous')
+
         print(f"Appended {ds_new[append_dim].size} {append_dim} value(s) to {store_path}.")
         return
 
