@@ -5,7 +5,7 @@ import pandas as pd
 import xarray as xr
 
 from balearic_mhws import config
-from balearic_mhws.data.io import load_mhws, save_mhws, write_zarr_incremental
+from balearic_mhws.data.io import load_mhws, open_medrea, open_rep, save_mhws, write_zarr_incremental
 
 
 def _synthetic_mhws_dataset():
@@ -13,6 +13,76 @@ def _synthetic_mhws_dataset():
         {"total_days": (("year", "lat", "lon"), np.arange(2 * 3 * 3, dtype=float).reshape(2, 3, 3))},
         coords={"year": [2000, 2001], "lat": np.arange(3.0), "lon": np.arange(3.0)},
     )
+
+
+# Wider than the 'balears' region_selector (lon [-0.9, 5.1], lat [37.6, 41.1]) so selecting it
+# actually crops something, proving the selector is applied rather than trivially passing through.
+_LAT = np.arange(35.0, 44.0)  # 35..43, balears keeps 38..41
+_LON = np.arange(-3.0, 8.0)  # -3..7, balears keeps 0..5
+
+
+def _synthetic_rep_store(tmp_path):
+    time = pd.date_range("2000-01-01", periods=5, freq="D")
+    data = np.arange(len(time) * len(_LAT) * len(_LON), dtype=float).reshape(len(time), len(_LAT), len(_LON))
+    ds = xr.Dataset({"T": (("time", "lat", "lon"), data)}, coords={"time": time, "lat": _LAT, "lon": _LON})
+
+    store_path = tmp_path / "rep.zarr"
+    ds.to_zarr(store_path, mode="w", consolidated=True)
+    return store_path
+
+
+def _synthetic_medrea_store(tmp_path):
+    time = pd.date_range("2000-01-01", periods=3, freq="D")
+    # One extra depth (2500) beyond config.MEDREA_DEFAULT_DEPTH_LEVELS, so the default-depth
+    # selector has something to actually exclude.
+    depth = np.array(config.MEDREA_DEFAULT_DEPTH_LEVELS + [2500], dtype=float)
+    shape = (len(time), len(depth), len(_LAT), len(_LON))
+    data = np.arange(np.prod(shape), dtype=float).reshape(shape)
+    ds = xr.Dataset(
+        {"T": (("time", "depth", "lat", "lon"), data)},
+        coords={"time": time, "depth": depth, "lat": _LAT, "lon": _LON},
+    )
+
+    store_path = tmp_path / "medrea.zarr"
+    ds.to_zarr(store_path, mode="w", consolidated=True)
+    return store_path
+
+
+def test_open_rep_applies_region_and_time_selectors(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "REP_ZARR", _synthetic_rep_store(tmp_path))
+
+    ds = open_rep(time_selector=slice("2000-01-01", "2000-01-02"))
+
+    assert ds.sizes["time"] == 2
+    np.testing.assert_array_equal(ds.lat.values, np.arange(38.0, 42.0))
+    np.testing.assert_array_equal(ds.lon.values, np.arange(0.0, 6.0))
+
+
+def test_open_rep_region_selector_none_keeps_full_extent(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "REP_ZARR", _synthetic_rep_store(tmp_path))
+
+    ds = open_rep(region_selector=None)
+
+    assert ds.sizes["lat"] == len(_LAT)
+    assert ds.sizes["lon"] == len(_LON)
+
+
+def test_open_medrea_default_depth_and_region(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "MEDREA_ZARR", _synthetic_medrea_store(tmp_path))
+
+    ds = open_medrea()
+
+    assert sorted(ds.depth.values.tolist()) == sorted(config.MEDREA_DEFAULT_DEPTH_LEVELS)
+    np.testing.assert_array_equal(ds.lat.values, np.arange(38.0, 42.0))
+    np.testing.assert_array_equal(ds.lon.values, np.arange(0.0, 6.0))
+
+
+def test_open_medrea_depth_selector_none_keeps_full_water_column(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "MEDREA_ZARR", _synthetic_medrea_store(tmp_path))
+
+    ds = open_medrea(depth_selector=None, region_selector=None)
+
+    assert ds.sizes["depth"] == len(config.MEDREA_DEFAULT_DEPTH_LEVELS) + 1
 
 
 def test_save_and_load_mhws_roundtrip(tmp_path, monkeypatch):

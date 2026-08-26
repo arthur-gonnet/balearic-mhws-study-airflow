@@ -5,7 +5,11 @@ import pandas as pd
 import xarray as xr
 
 from balearic_mhws import config
-from balearic_mhws.processing.compute_mhws import compute_mhw_yearly
+from balearic_mhws.processing.compute_mhws import (
+    compute_mhw_all_events,
+    compute_mhw_yearly,
+    get_mhw_ts_from_ds,
+)
 
 
 def _synthetic_temperature(n_years=3, n_lat=2, n_lon=2, seed=0):
@@ -49,3 +53,30 @@ def test_compute_mhw_yearly_all_nan_series_returns_nan():
     ds_mhws = compute_mhw_yearly(da, clim_period=(2000, 2000)).compute()
 
     assert bool(ds_mhws["total_days"].isnull().all())
+
+
+def test_compute_mhw_all_events_detects_the_injected_event():
+    da = _synthetic_temperature(n_lat=1, n_lon=1)
+
+    ds_mhws = compute_mhw_all_events(da, clim_period=(2000, 2001)).compute()
+
+    assert "event_number" in ds_mhws.dims
+    # _synthetic_temperature injects one 10-day spike, so the first event lasts exactly 10 days.
+    durations = ds_mhws["duration"].values.ravel()
+    assert durations[0] == 10.0
+
+
+def test_get_mhw_ts_from_ds_spreads_events_onto_the_daily_grid():
+    da = _synthetic_temperature(n_lat=1, n_lon=1)
+    ds_mhws = compute_mhw_all_events(da, clim_period=(2000, 2001)).compute().squeeze()
+
+    time, mhws = get_mhw_ts_from_ds(ds_mhws)
+
+    assert len(time) == da.sizes["time"]
+    assert mhws["n_events"] == 1
+
+    # mhw_mask is True outside the events - it is used to blank the non-event days - so the days
+    # belonging to the injected 10-day event are the False ones.
+    assert len(mhws["mhw_mask"]) == da.sizes["time"]
+    assert int((~mhws["mhw_mask"]).sum()) == 10
+    assert int(np.nansum(mhws["mhw_number"] == 1)) == 10
