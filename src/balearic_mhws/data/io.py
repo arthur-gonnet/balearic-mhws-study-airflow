@@ -377,6 +377,10 @@ def write_zarr_incremental(ds: xr.Dataset, store_path: Path, append_dim: str = '
 
     if bool((ds_new[append_dim] > existing[append_dim].max()).all()):
         # Fast path: purely new data past the end - append without touching what's already there.
+        # Rechunked onto the store's own layout first, as Zarr refuses a write whose chunks
+        # straddle the chunks already on disk - a freshly downloaded month holds its depth in a
+        # single chunk, where the store splits it.
+        ds_new = ds_new.chunk({d: existing.chunksizes[d][0] for d in existing.dims if d != append_dim})
         existing.close()
         ds_new.to_zarr(store_path, mode='a', append_dim=append_dim, consolidated=True, zarr_format=config.ZARR_FORMAT)
         print(f"Appended {ds_new[append_dim].size} {append_dim} value(s) to {store_path}.")

@@ -165,3 +165,27 @@ def test_write_zarr_incremental_backfills_before_existing_range(tmp_path):
     result = xr.open_zarr(store_path, consolidated=True).compute()
     assert result.sizes["time"] == 15
     np.testing.assert_array_equal(result["T"].values, np.concatenate([ds2["T"].values, ds1["T"].values]))
+
+
+def test_write_zarr_incremental_appends_onto_a_differently_chunked_store(tmp_path):
+    store_path = tmp_path / "raw.zarr"
+
+    depth = np.arange(20.0)
+    coords = {"depth": depth, "lat": np.arange(4.0), "lon": np.arange(4.0)}
+
+    def dataset(start, periods, value):
+        time = pd.date_range(start, periods=periods, freq="D")
+        data = np.full((periods, 20, 4, 4), value, dtype="float32")
+        return xr.Dataset({"T": (("time", "depth", "lat", "lon"), data)}, coords={"time": time, **coords})
+
+    # The store splits depth over two chunks, where a freshly downloaded month holds it in one.
+    dataset("2000-01-01", 10, 1.0).chunk({"time": 5, "depth": 12}).to_zarr(
+        store_path, mode="w", consolidated=True, zarr_format=config.ZARR_FORMAT
+    )
+
+    write_zarr_incremental(dataset("2000-01-11", 5, 2.0).chunk({"time": -1, "depth": -1}), store_path)
+
+    result = xr.open_zarr(store_path, consolidated=True).compute()
+    assert result.sizes["time"] == 15
+    assert float(result["T"].isel(time=slice(0, 10)).mean()) == 1.0
+    assert float(result["T"].isel(time=slice(10, 15)).mean()) == 2.0
