@@ -119,6 +119,8 @@ def apply_regional_mask(
 
     # Function to add back coordinates
     def to_xarray(mask):
+        """Wraps a 2D mask array back into a DataArray carrying the dataset coordinates."""
+
         return xr.DataArray(
             mask,
             coords={'lat': ds.lat, 'lon': ds.lon},

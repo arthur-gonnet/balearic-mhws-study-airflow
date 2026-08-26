@@ -194,6 +194,8 @@ class _LoggingProgressBar(ProgressBar):
     """
 
     def __init__(self, start_interval: float = 15.0, max_interval: float = 600.0):
+        """Sets the print cadence, starting at `start_interval` and doubling up to `max_interval`."""
+
         super().__init__(dt=1.0)
         self._next_print = start_interval
         self._interval = start_interval
@@ -201,6 +203,8 @@ class _LoggingProgressBar(ProgressBar):
         self._last_frac = None
 
     def _draw_bar(self, frac, elapsed):
+        """Prints one progress line, immediately if progress was made, on the schedule otherwise."""
+
         if frac == self._last_frac and elapsed < self._next_print:
             return
 
@@ -218,6 +222,8 @@ def _mhws_zarr_path(
         region: str,
         clim_period: Tuple[int, int],
 ) -> Path:
+    """Builds the Zarr store path of a computed MHWs dataset from `config.MHWS_ZARR_PATTERN`."""
+
     return Path(config.MHWS_ZARR_PATTERN.format(
         type=ds_type,
         dataset=dataset_used,

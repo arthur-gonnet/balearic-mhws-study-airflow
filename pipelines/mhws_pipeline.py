@@ -42,6 +42,8 @@ def _parse_range(value: str) -> range:
 
 
 def cmd_download(args: argparse.Namespace) -> None:
+    """Ingests the requested dataset into its raw Zarr store."""
+
     years = _parse_range(args.years) if args.years else None
     months = _parse_range(args.months) if args.months else None
 
@@ -69,6 +71,8 @@ def cmd_download(args: argparse.Namespace) -> None:
 
 
 def cmd_compute(args: argparse.Namespace) -> None:
+    """Computes the MHW metrics of the requested dataset and saves them."""
+
     clim_period = (args.clim_start, args.clim_end)
 
     if args.dataset == 'rep':
@@ -102,6 +106,8 @@ def cmd_compute(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Builds the argument parser, with one subparser per pipeline stage."""
+
     parser = argparse.ArgumentParser(description="Balearic MHWs pipeline CLI")
     sub = parser.add_subparsers(dest='stage', required=True)
 
@@ -124,6 +130,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: List[str] | None = None) -> None:
+    """Parses the arguments and runs the requested stage."""
+
     parser = build_parser()
     args = parser.parse_args(argv)
     args.func(args)
