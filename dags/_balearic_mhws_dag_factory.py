@@ -59,7 +59,6 @@ def build_dag(dataset: str):
         @task
         def compute_mhws_task(region: str = "balears", ds_type: str = "yearly"):
             import os
-            import shlex
 
             from balearic_mhws import config
 
@@ -75,9 +74,8 @@ def build_dag(dataset: str):
             slurm_host = os.environ.get("SLURM_SSH_HOST")
 
             if slurm_host:
-                # A real cluster is configured: submit the sbatch job and block until it finishes,
-                # rather than computing in-process on the Celery worker.
-                import subprocess
+                # A real cluster is configured: submit the job there instead of computing here.
+                from pipelines.slurm import run_compute_job, ssh_target
 
                 remote_dir = os.environ.get("SLURM_REMOTE_PROJECT_DIR", "")
                 if not remote_dir:
@@ -86,32 +84,12 @@ def build_dag(dataset: str):
                         "set it in .env to the project's path on the remote cluster."
                     )
 
-                ssh_user = os.environ.get("SLURM_SSH_USER", "")
-                target = f"{ssh_user}@{slurm_host}" if ssh_user else slurm_host
-
-                # remote_cmd ends up as one string that `ssh` hands to the remote shell to parse -
-                # shlex.quote() every interpolated value so a DAG param or env var containing shell
-                # metacharacters (';', backticks, '$()', ...) can't inject commands on the remote host.
-
-                # Forward SLURM_REMOTE_PROJECT_DIR explicitly rather than relying on it already being
-                # set in the remote environment: `ssh host "command"` runs a non-interactive shell,
-                # which doesn't reliably source ~/.bashrc, so --export=ALL alone can't be trusted to
-                # carry it through even if it's exported there.
-                export_vars = ",".join(
-                    f"{key.upper()}={shlex.quote(str(value))}"
-                    for key, value in {**run_args, "slurm_remote_project_dir": remote_dir}.items()
+                run_compute_job(
+                    target=ssh_target(slurm_host, os.environ.get("SLURM_SSH_USER", "")),
+                    remote_dir=remote_dir,
+                    run_args=run_args,
+                    partition=os.environ.get("SLURM_PARTITION", ""),
                 )
-
-                partition = os.environ.get("SLURM_PARTITION", "")
-                partition_flag = f"--partition={shlex.quote(partition)} " if partition else ""
-
-                remote_cmd = (
-                    f"cd {shlex.quote(remote_dir)} && sbatch --wait {partition_flag}"
-                    f"--export=ALL,{export_vars} hpc/slurm/compute_mhws.sbatch"
-                )
-
-                print("Submitting Slurm job over SSH:", remote_cmd)
-                subprocess.run(["ssh", target, remote_cmd], check=True)
 
             else:
                 # No cluster configured (e.g. local Docker Compose dev stack): run in-process.

@@ -22,7 +22,9 @@ export BALEARIC_DATA_DIR="${BALEARIC_DATA_DIR:-${PROJECT_DIR}/data}"
 
 cd "$PROJECT_DIR"
 
-python3 -m pipelines.mhws_pipeline compute \
+# -u: stdout is redirected to a file (--output above), so Python fully-buffers it by default -
+# the DAG task that submits this job tails the file live, which needs it unbuffered.
+python3 -u -m pipelines.mhws_pipeline compute \
     --dataset "${DATASET:-rep}" \
     --region "${REGION:-balears}" \
     --ds-type "${DS_TYPE:-yearly}" \
