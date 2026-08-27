@@ -367,8 +367,13 @@ def save_mhws(
 
     print(f"Saving MHWs dataset to {zarr_path}")
 
+    # scheduler='synchronous': the input chunks (one per grid region, before the -1 rechunk above
+    # consolidates the output) are still processed by dask's default threaded scheduler otherwise,
+    # which has no memory limit and runs several of MEDREA's chunks - each a whole point's climatology
+    # computation - at once.
     with _LoggingProgressBar() if progress_bar else contextlib.nullcontext():
-        ds_mhws.to_zarr(zarr_path, mode='w', consolidated=True, zarr_format=config.ZARR_FORMAT)
+        writer = ds_mhws.to_zarr(zarr_path, mode='w', zarr_format=config.ZARR_FORMAT, consolidated=True, compute=False)
+        writer.compute(scheduler='synchronous')
 
     print(" -> Saved!")
 
