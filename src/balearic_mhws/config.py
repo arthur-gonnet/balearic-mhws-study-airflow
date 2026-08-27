@@ -28,6 +28,11 @@ REP_ZARR = RAW_DIR / "REP" / "rep.zarr"
 MEDREA_ZARR = RAW_DIR / "MEDREA" / "medrea.zarr"
 BATHY_ZARR = RAW_DIR / "bathymetry" / "medrea_bathy.zarr"
 
+# MEDREA rechunked for MHW computation (see balearic_mhws.data.io.build_medrea_compute_store) -
+# grouped by multi-year chunks instead of one-year, and only the depths MHWs are computed at.
+MEDREA_COMPUTE_ZARR = RAW_DIR / "MEDREA" / "medrea_compute.zarr"
+MEDREA_COMPUTE_YEARS_PER_CHUNK = 2
+
 # Chunking used when writing/appending to the raw Zarr stores. A full year per chunk keeps
 # appends chunk-aligned (new ingests add whole chunks) while still being cheap to rechunk to
 # a single time chunk before running the MHW computation.
