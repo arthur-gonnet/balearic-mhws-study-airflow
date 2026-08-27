@@ -5,7 +5,14 @@ import pandas as pd
 import xarray as xr
 
 from balearic_mhws import config
-from balearic_mhws.data.io import load_mhws, open_medrea, open_rep, save_mhws, write_zarr_incremental
+from balearic_mhws.data.io import (
+    build_medrea_compute_store,
+    load_mhws,
+    open_medrea,
+    open_rep,
+    save_mhws,
+    write_zarr_incremental,
+)
 
 
 def _synthetic_mhws_dataset():
@@ -189,3 +196,42 @@ def test_write_zarr_incremental_appends_onto_a_differently_chunked_store(tmp_pat
     assert result.sizes["time"] == 15
     assert float(result["T"].isel(time=slice(0, 10)).mean()) == 1.0
     assert float(result["T"].isel(time=slice(10, 15)).mean()) == 2.0
+
+
+def test_build_medrea_compute_store_groups_years_and_keeps_default_depths(tmp_path, monkeypatch):
+    # depth/lat/lon are each split into 2 on-disk chunks, and the 10 kept depths span both depth
+    # chunks - matching the real store, where a region write failed because of this exact split.
+    depth = np.arange(14.0)
+    lat = np.arange(6.0)
+    lon = np.arange(6.0)
+
+    years = []
+    for y in range(5):
+        time = pd.date_range(f"{2000 + y}-01-01", periods=10, freq="D")
+        data = np.full((10, len(depth), len(lat), len(lon)), y, dtype="float32")
+        years.append(xr.Dataset({"T": (("time", "depth", "lat", "lon"), data)}, coords={
+            "time": time, "depth": depth, "lat": lat, "lon": lon,
+        }))
+    raw = xr.concat(years, dim="time").chunk({"time": 10, "depth": 7, "lat": 3, "lon": 3})
+
+    raw_path = tmp_path / "medrea.zarr"
+    compute_path = tmp_path / "medrea_compute.zarr"
+    raw.to_zarr(raw_path, mode="w", consolidated=True, zarr_format=config.ZARR_FORMAT)
+
+    monkeypatch.setattr(config, "MEDREA_ZARR", raw_path)
+    monkeypatch.setattr(config, "MEDREA_COMPUTE_ZARR", compute_path)
+    monkeypatch.setattr(config, "MEDREA_COMPUTE_YEARS_PER_CHUNK", 2)
+    monkeypatch.setattr(config, "ZARR_TIME_CHUNK", 10)
+    # 10 depths spanning both chunks: indices 2-6 are in the first (0-6), 7-11 in the second (7-13).
+    kept_depths = [float(d) for d in range(2, 12)]
+    monkeypatch.setattr(config, "MEDREA_DEFAULT_DEPTH_LEVELS", kept_depths)
+
+    build_medrea_compute_store()
+
+    result = xr.open_zarr(compute_path, consolidated=True).compute()
+    assert sorted(result.depth.values.tolist()) == kept_depths
+    assert result.sizes["time"] == 50
+    assert pd.DatetimeIndex(result.time.values).is_monotonic_increasing
+
+    for y in range(5):
+        assert float(result["T"].sel(time=f"{2000 + y}-01-05").mean()) == y

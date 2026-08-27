@@ -100,6 +100,7 @@ def open_medrea(
         lat_selector: Optional[float | slice | List[float]] = None,
         depth_selector: Optional[float | slice | List[float]] = 'default',
         region_selector: Optional[str] = 'balears',
+        use_compute_zarr: bool = False,
 ) -> xr.Dataset:
     """
     Opens the MEDREA Zarr store, with optional spatio-temporal subsetting.
@@ -121,6 +122,11 @@ def open_medrea(
     region_selector : str, default='balears', optional
         Applies a named spatial selector to the dataset. Overrides `lon_selector`/`lat_selector`.
 
+    use_compute_zarr : bool, default=False
+        Opens `config.MEDREA_COMPUTE_ZARR` instead of the raw store. That store is rechunked for
+        MHW computation (see `build_medrea_compute_store`) and only holds the default depths, so
+        `depth_selector` must stay `'default'` or `None` when this is set.
+
     Returns
     ----------
     ds_medrea : xarray.Dataset
@@ -130,7 +136,7 @@ def open_medrea(
     if depth_selector == 'default':
         depth_selector = config.MEDREA_DEFAULT_DEPTH_LEVELS
 
-    ds_medrea = _open_zarr_store(config.MEDREA_ZARR, "MEDREA")
+    ds_medrea = _open_zarr_store(config.MEDREA_COMPUTE_ZARR if use_compute_zarr else config.MEDREA_ZARR, "MEDREA")
 
     if region_selector is not None:
         lon_selector, lat_selector = _region_selector(region_selector)
@@ -148,6 +154,82 @@ def open_medrea(
         ds_medrea = ds_medrea.sel(time=time_selector)
 
     return ds_medrea
+
+
+def build_medrea_compute_store() -> None:
+    """
+    Rebuilds `config.MEDREA_COMPUTE_ZARR` from the raw MEDREA store.
+
+    Computing MHWs needs a point's whole time serie at once, and Zarr can only read a chunk by
+    decompressing it whole - the raw store's chunks span a whole year *and* every depth/lat/lon
+    split, so getting any handful of points touches most of the store regardless of how few years
+    or depths are asked for. Built one (time, lat, lon) region at a time - matching the raw
+    store's own lat/lon chunk grid - so only a few of its chunks are ever decompressed at once,
+    grouping `config.MEDREA_COMPUTE_YEARS_PER_CHUNK` years per chunk and keeping only
+    `config.MEDREA_DEFAULT_DEPTH_LEVELS`.
+    """
+
+    existing = xr.open_zarr(config.MEDREA_ZARR, consolidated=True).drop_encoding()
+    existing = existing.sel(depth=config.MEDREA_DEFAULT_DEPTH_LEVELS, method='nearest')
+
+    years_per_chunk = config.MEDREA_COMPUTE_YEARS_PER_CHUNK
+    target_time = years_per_chunk * config.ZARR_TIME_CHUNK
+    time_native = existing.chunksizes['time']
+    time_bounds = np.concatenate([[0], np.cumsum(time_native)])
+    time_batches = [
+        (int(time_bounds[i]), int(time_bounds[min(i + years_per_chunk, len(time_native))]))
+        for i in range(0, len(time_native), years_per_chunk)
+    ]
+
+    # Lat/lon chunking reused as-is from the raw store - every region below has to line up with
+    # the target's own chunk grid, and the raw store's split is already a reasonable size.
+    lat_native = existing.chunksizes['lat']
+    lon_native = existing.chunksizes['lon']
+    lat_bounds = np.concatenate([[0], np.cumsum(lat_native)])
+    lon_bounds = np.concatenate([[0], np.cumsum(lon_native)])
+
+    tmp_path = config.MEDREA_COMPUTE_ZARR.parent / f"{config.MEDREA_COMPUTE_ZARR.name}.tmp"
+    if tmp_path.exists():
+        shutil.rmtree(tmp_path)
+
+    # Skeleton only - shape, dtype and chunk grid, no data read (compute=False, never computed).
+    # Every region below is written explicitly, so what its still-empty chunks start as doesn't
+    # matter.
+    skeleton = existing.chunk({'time': target_time, 'depth': -1, 'lat': tuple(lat_native), 'lon': tuple(lon_native)})
+    skeleton.to_zarr(tmp_path, mode='w', compute=False, zarr_format=config.ZARR_FORMAT)
+
+    n_regions = len(time_batches) * len(lat_native) * len(lon_native)
+    done = 0
+    for t0, t1 in time_batches:
+        for li in range(len(lat_native)):
+            for lj in range(len(lon_native)):
+                region = {
+                    'time': slice(t0, t1),
+                    'lat': slice(int(lat_bounds[li]), int(lat_bounds[li + 1])),
+                    'lon': slice(int(lon_bounds[lj]), int(lon_bounds[lj + 1])),
+                }
+                # Coordinates with no dimension in `region` (e.g. 'depth') are already fully
+                # written by the skeleton and can't be part of a region write.
+                # Every dim rechunked to one piece, not just the ones in `region` - 'depth' isn't
+                # part of the region (it's fully kept, not sliced per-region) but still needs to
+                # match the skeleton's single depth chunk, not the raw store's native sub-chunks.
+                piece = existing.isel(**region).drop_vars([c for c in existing.coords if c not in region])
+                piece = piece.chunk(-1)
+                writer = piece.to_zarr(tmp_path, region=region, compute=False)
+                writer.compute(scheduler='synchronous')
+                done += 1
+                print(f"Wrote region {done}/{n_regions} to {tmp_path}.")
+
+    existing.close()
+    xr.open_zarr(tmp_path).close()  # zarr's own consolidate needs a real read/write handle
+    import zarr
+    zarr.consolidate_metadata(str(tmp_path))
+
+    if config.MEDREA_COMPUTE_ZARR.exists():
+        shutil.rmtree(config.MEDREA_COMPUTE_ZARR)
+    tmp_path.rename(config.MEDREA_COMPUTE_ZARR)
+
+    print(f"Built {config.MEDREA_COMPUTE_ZARR}.")
 
 
 def open_bathy(region_selector: Optional[str] = 'balears') -> xr.Dataset:

@@ -79,7 +79,7 @@ def cmd_compute(args: argparse.Namespace) -> None:
         ds = io.open_rep(region_selector=args.region)
         using_dataset = 'rep'
     elif args.dataset == 'medrea':
-        ds = io.open_medrea(region_selector=args.region)
+        ds = io.open_medrea(region_selector=args.region, use_compute_zarr=True)
         using_dataset = 'medrea'
     else:
         raise ValueError(f"Unknown dataset {args.dataset!r}")
